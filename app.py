@@ -735,18 +735,25 @@ with c_spd:
     st.session_state.sim_speed = speed_multiplier
 
 # Multi-Stage Simulation Propagation Slider
+stage_descriptions = [
+    f"Stage {i+1}: {s['tag']} ({s['date']}) — {s['name']} ({s['flooded_cells']} cells, {s['flooded_area_km2']:.0f} km²)"
+    for i, s in enumerate(sim_stages)
+]
+
 sim_slider = st.slider(
-    "Terrain-Guided Flood Propagation Stage (T-7 Baseline ➔ T Peak Crest)",
+    "Terrain-Guided Flood Propagation Stage (1: T-7 Baseline ➔ 5: T Peak Crest)",
     min_value=1,
     max_value=5,
     value=curr_stage_idx + 1,
-    format_func=lambda s: f"Stage {s}: {sim_stages[s-1]['tag']} ({sim_stages[s-1]['date']}) - {sim_stages[s-1]['name']}",
+    step=1,
     help="Scrub through the 5 terrain-guided flood propagation stages across Assam."
 )
 if sim_slider - 1 != curr_stage_idx:
     st.session_state.sim_stage_idx = sim_slider - 1
     curr_stage_idx = st.session_state.sim_stage_idx
     active_stage_dict = sim_stages[curr_stage_idx]
+
+st.caption(f"📌 **Current Simulation Stage:** {stage_descriptions[curr_stage_idx]}")
 
 # Row 2: Hydraulic & Terrain Layers, Target Location, and Vertical Exaggeration Slider
 c_layers, c_loc, c_exag = st.columns([1.9, 1.6, 1.0])
