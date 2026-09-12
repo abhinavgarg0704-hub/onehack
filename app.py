@@ -16,13 +16,98 @@ from src.data_loader import load_data_for_tag, generate_base_topography
 from src.model import FloodRiskModel, train_and_save_all_models
 from src.prediction import generate_spatial_prediction
 from src.alerts import evaluate_flood_alert
-from src.visualization import (
-    build_interactive_map,
-    build_3d_terrain_view,
-    plot_risk_timeline,
-    plot_feature_importance_chart,
-    plot_confusion_matrix_chart
-)
+import importlib
+import src.visualization
+# Ensure in-memory module has latest attributes in persistent Streamlit runtime
+if not hasattr(src.visualization, "build_3d_terrain_view"):
+    try:
+        importlib.reload(src.visualization)
+    except Exception:
+        pass
+
+try:
+    from src.visualization import (
+        build_interactive_map,
+        build_3d_terrain_view,
+        plot_risk_timeline,
+        plot_feature_importance_chart,
+        plot_confusion_matrix_chart
+    )
+except ImportError:
+    try:
+        importlib.reload(src.visualization)
+        from src.visualization import (
+            build_interactive_map,
+            build_3d_terrain_view,
+            plot_risk_timeline,
+            plot_feature_importance_chart,
+            plot_confusion_matrix_chart
+        )
+    except ImportError:
+        from src.visualization import (
+            build_interactive_map,
+            plot_risk_timeline,
+            plot_feature_importance_chart,
+            plot_confusion_matrix_chart
+        )
+        import plotly.graph_objects as go
+        def build_3d_terrain_view(
+            elev_grid: np.ndarray,
+            lat_grid: np.ndarray,
+            lon_grid: np.ndarray,
+            surface_data: np.ndarray = None,
+            surface_name: str = "Flood Risk (%)",
+            vertical_exaggeration: float = 2.5
+        ) -> go.Figure:
+            lats = lat_grid[:, 0]
+            lons = lon_grid[0, :]
+            z_terrain = elev_grid * vertical_exaggeration
+            colorscale = [
+                [0.0, "#10B981"], [0.25, "#10B981"],
+                [0.25, "#F59E0B"], [0.50, "#F59E0B"],
+                [0.50, "#F97316"], [0.75, "#F97316"],
+                [0.75, "#EF4444"], [1.0, "#EF4444"]
+            ]
+            fig = go.Figure(data=[
+                go.Surface(
+                    x=lons, y=lats, z=z_terrain,
+                    surfacecolor=surface_data if surface_data is not None else elev_grid,
+                    cmin=0.0 if surface_data is not None else float(np.min(elev_grid)),
+                    cmax=100.0 if surface_data is not None else float(np.max(elev_grid)),
+                    colorscale=colorscale if surface_data is not None else "Viridis",
+                    colorbar=dict(
+                        title=dict(text=f"<b>{surface_name}</b>", font=dict(color="#F8FAFC", size=11, family="Inter, sans-serif")),
+                        tickfont=dict(color="#CBD5E1", size=10, family="Inter, sans-serif"),
+                        len=0.75, thickness=16
+                    ),
+                    hovertemplate=(
+                        "<b>Longitude:</b> %{x:.3f}°E<br>" +
+                        "<b>Latitude:</b> %{y:.3f}°N<br>" +
+                        "<b>SRTM Elevation:</b> %{customdata:.1f} m<br>" +
+                        "<b>" + surface_name + ":</b> %{surfacecolor:.1f}%<extra></extra>"
+                    ),
+                    customdata=elev_grid,
+                    lighting=dict(ambient=0.65, diffuse=0.8, roughness=0.5, specular=0.25)
+                )
+            ])
+            fig.update_layout(
+                title=dict(
+                    text="<b>3D TOPOGRAPHIC DIGITAL ELEVATION MODEL (SRTM) & INUNDATION PROFILE</b>",
+                    font=dict(color="#F8FAFC", size=13, family="Inter, sans-serif")
+                ),
+                scene=dict(
+                    xaxis=dict(title="Longitude (°E)", backgroundcolor="#0B111E", gridcolor="#1E293B", showbackground=True, color="#94A3B8"),
+                    yaxis=dict(title="Latitude (°N)", backgroundcolor="#0B111E", gridcolor="#1E293B", showbackground=True, color="#94A3B8"),
+                    zaxis=dict(title="Elevation (m)", backgroundcolor="#0B111E", gridcolor="#1E293B", showbackground=True, color="#94A3B8"),
+                    camera=dict(eye=dict(x=-1.5, y=-1.6, z=1.2)),
+                    aspectratio=dict(x=1.5, y=1.2, z=0.45)
+                ),
+                template="plotly_dark",
+                paper_bgcolor="#0F172A",
+                margin=dict(l=10, r=10, t=40, b=20),
+                height=640
+            )
+            return fig
 from src.validation import run_comparative_evaluation
 
 # Page Configuration

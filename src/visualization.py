@@ -15,6 +15,14 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import config
 
+__all__ = [
+    "build_interactive_map",
+    "build_3d_terrain_view",
+    "plot_risk_timeline",
+    "plot_feature_importance_chart",
+    "plot_confusion_matrix_chart"
+]
+
 def build_3d_terrain_view(
     elev_grid: np.ndarray,
     lat_grid: np.ndarray,
