@@ -31,7 +31,7 @@ __all__ = [
     "plot_confusion_matrix_chart"
 ]
 
-def generate_assam_topography(rows: int = 65, cols: int = 95, seed: int = 42) -> dict:
+def generate_assam_topography(rows: int = 65, cols: int = 95, seed: int = 42, **kwargs) -> dict:
     """
     Constructs the macro-scale Assam 3D Digital Elevation Model (SRTM-grounded).
     Bounds: Lat 24.2°N to 27.9°N, Lon 89.8°E to 96.0°E (~78,438 km²).
@@ -133,7 +133,8 @@ def generate_assam_topography(rows: int = 65, cols: int = 95, seed: int = 42) ->
 def compute_assam_flood_simulation(
     topo_assam: dict,
     sp_local: dict = None,
-    rainfall_7d: float = 342.8
+    rainfall_7d: float = 342.8,
+    **kwargs
 ) -> dict:
     """
     Precomputes 5 terrain-guided flood propagation stages across Assam.
@@ -252,7 +253,8 @@ def build_assam_3d_simulation_map(
     show_gt: bool = True,
     show_landmarks: bool = True,
     selected_location: tuple = (26.60, 93.35),
-    vertical_exaggeration: float = 0.85
+    vertical_exaggeration: float = 0.85,
+    **kwargs
 ) -> go.Figure:
     """
     Renders the Google Earth-style 3D interactive flood simulation map covering the ENTIRE State of Assam.
@@ -621,7 +623,8 @@ def compute_downhill_flow_paths(
     risk_threshold: float = 25.0,
     selected_cell: tuple = None,
     step_len: float = 0.85,
-    max_steps: int = 35
+    max_steps: int = 35,
+    **kwargs
 ) -> dict:
     """
     Computes terrain-guided overland flood propagation streamlines and single-cell downstream flow paths
@@ -1523,7 +1526,7 @@ def build_interactive_map(
     folium.LayerControl(position="topright", collapsed=True).add_to(m)
     return m
 
-def plot_risk_timeline(timeline_df: pd.DataFrame) -> go.Figure:
+def plot_risk_timeline(timeline_df: pd.DataFrame, **kwargs) -> go.Figure:
     """
     Renders an interactive command-center Plotly chart showing Mean Floodplain Risk (%)
     and 7-day Cumulative Rainfall (mm) approaching and during the historical flood event.
@@ -1612,7 +1615,7 @@ def plot_risk_timeline(timeline_df: pd.DataFrame) -> go.Figure:
 
     return fig
 
-def plot_feature_importance_chart(df_imp: pd.DataFrame) -> go.Figure:
+def plot_feature_importance_chart(df_imp: pd.DataFrame, **kwargs) -> go.Figure:
     """
     Renders an executive horizontal bar chart displaying ranked environmental drivers.
     """
@@ -1679,7 +1682,7 @@ def plot_feature_importance_chart(df_imp: pd.DataFrame) -> go.Figure:
 
     return fig
 
-def plot_confusion_matrix_chart(cm_dict: dict) -> go.Figure:
+def plot_confusion_matrix_chart(cm_dict: dict, **kwargs) -> go.Figure:
     """
     Renders an annotated confusion matrix with command-center aesthetic.
     """
