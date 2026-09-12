@@ -250,6 +250,46 @@ st.markdown("""
         background: #0F172A;
     }
     
+    /* Leaflet Command-Center Map Theming */
+    .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+        background: #0F172A !important;
+        color: #F8FAFC !important;
+        border: 1px solid #38BDF8 !important;
+        border-radius: 8px !important;
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.7) !important;
+    }
+    .leaflet-popup-content {
+        margin: 10px 14px !important;
+        line-height: 1.4 !important;
+    }
+    .leaflet-control-layers {
+        background: #0F172A !important;
+        color: #E2E8F0 !important;
+        border: 1px solid #334155 !important;
+        border-radius: 6px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+        font-family: 'Inter', sans-serif !important;
+        font-size: 11px !important;
+        padding: 8px 12px !important;
+    }
+    .leaflet-control-layers-expanded {
+        background: #0F172A !important;
+        color: #E2E8F0 !important;
+    }
+    .leaflet-control-layers label {
+        color: #E2E8F0 !important;
+        margin-bottom: 3px !important;
+    }
+    .leaflet-bar a {
+        background-color: #0F172A !important;
+        color: #94A3B8 !important;
+        border-bottom: 1px solid #1E293B !important;
+    }
+    .leaflet-bar a:hover {
+        background-color: #1E293B !important;
+        color: #38BDF8 !important;
+    }
+    
     /* Clean Footer */
     .footer-bar {
         text-align: center;
@@ -463,6 +503,73 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
+# --- MAP OPERATIONAL STATUS & COMPARISON CONTROLS ---
+obs_date = df_step["date"].iloc[0]
+st.markdown(f"""
+<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; margin-bottom: 10px; padding: 6px 12px; background: #0B111E; border-radius: 6px; border: 1px solid #1E293B;">
+    <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #38BDF8;"></span>
+        <span style="font-size: 0.76rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #F1F5F9;">
+            SPATIAL FLOOD RISK ASSESSMENT &bull; HISTORICAL RETROSPECTIVE &bull; {obs_date} ({selected_tag})
+        </span>
+    </div>
+    <div style="font-size: 0.72rem; color: #94A3B8; font-weight: 500;">
+        ASSAM BRAHMAPUTRA ALLUVIAL PLAIN &bull; 26.45°N–26.85°N, 93.05°E–93.65°E
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Quick Comparison Mode & Opacity Controls
+map_ctrl1, map_ctrl2, map_ctrl3 = st.columns([2.2, 1.0, 1.0])
+with map_ctrl1:
+    layer_mode = st.radio(
+        "Display Layer Comparison",
+        options=["Command Composite (All Layers)", "Predicted Risk Only", "Observed Flood Only", "Side-by-Side Comparison"],
+        index=0,
+        horizontal=True,
+        help="Instantly compare model prediction against observed historical DFO inundation."
+    )
+with map_ctrl2:
+    risk_opacity = st.slider(
+        "Risk Surface Opacity",
+        min_value=0.20,
+        max_value=1.00,
+        value=0.85,
+        step=0.05,
+        help="Adjust transparency of predicted spatial flood probability surface."
+    )
+with map_ctrl3:
+    gt_opacity = st.slider(
+        "Observed Extent Opacity",
+        min_value=0.20,
+        max_value=1.00,
+        value=0.72,
+        step=0.05,
+        help="Adjust transparency of historical observed flood extent (DFO Event 4924)."
+    )
+
+# Evaluate active layers based on quick comparison toggle
+if layer_mode == "Predicted Risk Only":
+    eff_show_risk = True
+    eff_show_gt = False
+    eff_show_water = True
+elif layer_mode == "Observed Flood Only":
+    eff_show_risk = False
+    eff_show_gt = True
+    eff_show_water = True
+elif layer_mode == "Side-by-Side Comparison":
+    eff_show_risk = True
+    eff_show_gt = True
+    eff_show_water = True
+else:  # Command Composite
+    eff_show_risk = show_risk_layer
+    eff_show_gt = show_gt_layer
+    eff_show_water = show_water_layer
+
+# Attach risk scores to df_step for interactive cell inspector
+df_step_inspector = df_step.copy()
+df_step_inspector["risk_score"] = spatial_preds["risk_scores"]
+
 # Generate Folium map
 folium_map = build_interactive_map(
     lat_grid=topo["lat_grid"],
@@ -470,14 +577,18 @@ folium_map = build_interactive_map(
     risk_grid=spatial_preds["risk_grid"],
     gt_grid=spatial_preds["gt_grid"],
     perm_water_grid=spatial_preds["perm_water_grid"],
-    show_risk=show_risk_layer,
-    show_gt=show_gt_layer,
-    show_water=show_water_layer,
-    risk_threshold=float(risk_threshold_slider)
+    df_step=df_step_inspector,
+    show_risk=eff_show_risk,
+    show_gt=eff_show_gt,
+    show_water=eff_show_water,
+    show_inspector=True,
+    risk_threshold=float(risk_threshold_slider),
+    risk_opacity=float(risk_opacity),
+    gt_opacity=float(gt_opacity)
 )
 
-# Render map in Streamlit (Height 620px for 1080p presentation display)
-st_folium(folium_map, width="100%", height=620, returned_objects=[])
+# Render map in Streamlit (Height 640px for 1080p presentation display)
+st_folium(folium_map, width="100%", height=640, returned_objects=[])
 st.markdown("</div>", unsafe_allow_html=True)
 
 # --- 5. STRUCTURED ANALYTICAL TABS ---

@@ -19,19 +19,29 @@ def build_interactive_map(
     risk_grid: np.ndarray,
     gt_grid: np.ndarray,
     perm_water_grid: np.ndarray,
+    df_step: pd.DataFrame = None,
     show_risk: bool = True,
     show_gt: bool = True,
     show_water: bool = True,
-    risk_threshold: float = 25.0
+    show_inspector: bool = True,
+    risk_threshold: float = 20.0,
+    risk_opacity: float = 0.85,
+    gt_opacity: float = 0.72
 ) -> folium.Map:
     """
-    Constructs an interactive Folium map with raster overlays and vector markers.
+    Constructs an interactive satellite intelligence Folium map featuring:
+    - Multi-basemap selector (Carto Dark Command, Esri High-Res Satellite, Standard Topo)
+    - Semantic continuous/stepped risk surface overlay (0-25% Low, 25-50% Mod, 50-75% High, 75-100% Very High)
+    - Distinct observed historical flood extent overlay (ground truth)
+    - Permanent Brahmaputra braided river channel mask (JRC surface water)
+    - Interactive 3,750-cell GeoJSON risk inspector with hover tooltips and click popups from real data
+    - Regional hydrological stations, landmarks, study boundary, scale bar, and coordinate tracker
     """
     from folium.raster_layers import ImageOverlay
 
     center = [config.STUDY_AREA["center_lat"], config.STUDY_AREA["center_lon"]]
     
-    # Initialize Folium Map with Carto Dark Matter as primary basemap
+    # 1. Initialize Map with Carto Dark Matter as primary command-center basemap
     m = folium.Map(
         location=center,
         zoom_start=config.STUDY_AREA["default_zoom"],
@@ -41,10 +51,18 @@ def build_interactive_map(
         control_scale=True
     )
 
-    # Optional OpenStreetMap basemap
+    # 2. High-Resolution Satellite Imagery Basemap (Esri World Imagery)
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community",
+        name="Satellite Imagery (Esri High-Res)",
+        max_zoom=19
+    ).add_to(m)
+
+    # 3. Standard Topographic Basemap (OpenStreetMap)
     folium.TileLayer(
         tiles="OpenStreetMap",
-        name="OpenStreetMap Light",
+        name="Standard Topographic (OSM)",
         max_zoom=19
     ).add_to(m)
 
@@ -54,95 +72,237 @@ def build_interactive_map(
         [float(np.max(lat_grid)), float(np.max(lon_grid))]
     ]
 
-    # 1. Study Area Boundary Box (Subtle slate border)
+    # 4. Study Area Geographic Boundary Box
     folium.Rectangle(
         bounds=bounds,
         color="#38BDF8",
-        weight=1.8,
+        weight=2.0,
         dash_array="6, 4",
         fill=False,
-        popup=f"<b>Study Domain:</b> {config.STUDY_AREA['name']}"
+        name="Study Domain Boundary",
+        tooltip=f"Study Domain: {config.STUDY_AREA['name']} (26.45°N–26.85°N, 93.05°E–93.65°E)"
     ).add_to(m)
 
-    # 2. Risk Heatmap / Surface Overlay
+    # 5. Continuous & Stepped Risk Surface Overlay
+    # Semantic color palette matching the locked legend:
+    # 0–25%    LOW: Emerald (#10B981)
+    # 25–50%   MODERATE: Amber (#F59E0B)
+    # 50–75%   HIGH: Orange (#F97316)
+    # 75–100%  VERY HIGH: Crimson (#EF4444)
     if show_risk:
         rgba_img = np.zeros((rows, cols, 4), dtype=np.uint8)
-        
-        # Professional geospatial hazard colormap:
-        # Low (0-25): Emerald (#10B981)
-        # Moderate (25-50): Amber (#F59E0B)
-        # High (50-75): Orange (#F97316)
-        # Very High (75-100): Crimson (#EF4444)
         
         for r in range(rows):
             for c in range(cols):
                 score = risk_grid[r, c]
                 if score < risk_threshold:
                     continue
-                if score < 25:
-                    rgba_img[r, c] = [16, 185, 129, 130]
-                elif score < 50:
-                    rgba_img[r, c] = [245, 158, 11, 160]
-                elif score < 75:
-                    rgba_img[r, c] = [249, 115, 22, 195]
+                if score < 25.0:
+                    rgba_img[r, c] = [16, 185, 129, int(255 * risk_opacity * 0.70)]
+                elif score < 50.0:
+                    rgba_img[r, c] = [245, 158, 11, int(255 * risk_opacity * 0.85)]
+                elif score < 75.0:
+                    rgba_img[r, c] = [249, 115, 22, int(255 * risk_opacity * 0.95)]
                 else:
-                    rgba_img[r, c] = [239, 68, 68, 225]
+                    rgba_img[r, c] = [239, 68, 68, int(255 * risk_opacity)]
 
         ImageOverlay(
             image=rgba_img,
             bounds=bounds,
-            opacity=0.85,
-            name="Predicted Flood Risk Heatmap",
+            opacity=1.0,
+            name="Predicted Flood Risk Surface",
             interactive=True,
             cross_origin=False
         ).add_to(m)
 
-    # 3. Permanent Water Mask Overlay (Brahmaputra braided mainstem)
+    # 6. Permanent Riverbed Mask Overlay (Brahmaputra braided mainstem)
     if show_water:
         water_rgba = np.zeros((rows, cols, 4), dtype=np.uint8)
-        water_rgba[perm_water_grid == 1] = [2, 132, 199, 210]  # Sky-600 deep water
+        water_rgba[perm_water_grid == 1] = [2, 132, 199, 215]  # Sky-600 Deep Riverbed
         ImageOverlay(
             image=water_rgba,
             bounds=bounds,
-            opacity=0.80,
-            name="Permanent River Channel (JRC Water)",
+            opacity=0.82,
+            name="Permanent Riverbed (JRC Water)",
             interactive=True
         ).add_to(m)
 
-    # 4. Ground Truth Inundation Overlay
+    # 7. Observed Historical Flood Extent Overlay (Ground Truth Reference)
     if show_gt:
         gt_rgba = np.zeros((rows, cols, 4), dtype=np.uint8)
-        gt_rgba[gt_grid == 1] = [6, 182, 212, 175]  # Electric Cyan
+        gt_rgba[gt_grid == 1] = [6, 182, 212, int(255 * gt_opacity)]  # Electric Cyan
         ImageOverlay(
             image=gt_rgba,
             bounds=bounds,
-            opacity=0.72,
-            name="Observed Flood Extent (Ground Truth)",
+            opacity=1.0,
+            name="Observed Historical Flood Extent",
             interactive=True
         ).add_to(m)
 
-    # 5. Key Ground Stations & Landmark Markers
+    # 8. Interactive Risk Cell Inspector (Hover Tooltips & Click Popups with Real Data)
+    if show_inspector:
+        dlat = (np.max(lat_grid) - np.min(lat_grid)) / rows / 2.0
+        dlon = (np.max(lon_grid) - np.min(lon_grid)) / cols / 2.0
+
+        features = []
+        if df_step is not None and not df_step.empty:
+            for _, row in df_step.iterrows():
+                lat, lon = row["lat"], row["lon"]
+                r_idx = int(row["row"])
+                c_idx = int(row["col"])
+                score = float(row.get("risk_score", risk_grid[r_idx, c_idx]))
+                
+                if score >= 75.0:
+                    risk_cat = "VERY HIGH"
+                elif score >= 50.0:
+                    risk_cat = "HIGH"
+                elif score >= 25.0:
+                    risk_cat = "MODERATE"
+                else:
+                    risk_cat = "LOW"
+                    
+                gt_val = int(row.get("is_flooded", gt_grid[r_idx, c_idx]))
+                features.append({
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [round(lon - dlon, 5), round(lat - dlat, 5)],
+                            [round(lon + dlon, 5), round(lat - dlat, 5)],
+                            [round(lon + dlon, 5), round(lat + dlat, 5)],
+                            [round(lon - dlon, 5), round(lat + dlat, 5)],
+                            [round(lon - dlon, 5), round(lat - dlat, 5)]
+                        ]]
+                    },
+                    "properties": {
+                        "cell_id": f"Cell [{r_idx}, {c_idx}]",
+                        "prob": f"{score:.1f}%",
+                        "risk": risk_cat,
+                        "elev": f"{float(row['elevation']):.0f} m",
+                        "rain7d": f"{float(row['rainfall_7d']):.1f} mm",
+                        "ndwi": f"{float(row['ndwi']):.2f}",
+                        "mndwi": f"{float(row['mndwi']):.2f}",
+                        "dist_drainage": f"{float(row['dist_to_drainage']):.0f} m",
+                        "gt_status": "Observed Inundated (DFO 4924)" if gt_val == 1 else "Observed Dry Ground"
+                    }
+                })
+        else:
+            for r in range(rows):
+                for c in range(cols):
+                    lat, lon = float(lat_grid[r, c]), float(lon_grid[r, c])
+                    score = float(risk_grid[r, c])
+                    if score >= 75.0:
+                        risk_cat = "VERY HIGH"
+                    elif score >= 50.0:
+                        risk_cat = "HIGH"
+                    elif score >= 25.0:
+                        risk_cat = "MODERATE"
+                    else:
+                        risk_cat = "LOW"
+                    features.append({
+                        "type": "Feature",
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[
+                                [round(lon - dlon, 5), round(lat - dlat, 5)],
+                                [round(lon + dlon, 5), round(lat - dlat, 5)],
+                                [round(lon + dlon, 5), round(lat + dlat, 5)],
+                                [round(lon - dlon, 5), round(lat + dlat, 5)],
+                                [round(lon - dlon, 5), round(lat - dlat, 5)]
+                            ]]
+                        },
+                        "properties": {
+                            "cell_id": f"Cell [{r}, {c}]",
+                            "prob": f"{score:.1f}%",
+                            "risk": risk_cat,
+                            "elev": "N/A",
+                            "rain7d": "N/A",
+                            "ndwi": "N/A",
+                            "mndwi": "N/A",
+                            "dist_drainage": "N/A",
+                            "gt_status": "Observed Inundated" if gt_grid[r, c] == 1 else "Observed Dry"
+                        }
+                    })
+
+        geojson_obj = {"type": "FeatureCollection", "features": features}
+
+        tooltip = folium.GeoJsonTooltip(
+            fields=["cell_id", "prob", "risk", "elev", "rain7d", "ndwi", "mndwi"],
+            aliases=["Grid Cell:", "Flood Probability:", "Risk Level:", "Elevation:", "7-Day Rain:", "NDWI:", "MNDWI:"],
+            style="""
+                background: #0F172A;
+                color: #F8FAFC;
+                font-family: 'Inter', -apple-system, sans-serif;
+                font-size: 11px;
+                padding: 8px 12px;
+                border: 1px solid #38BDF8;
+                border-radius: 6px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+            """,
+            localize=True,
+            sticky=True
+        )
+
+        popup = folium.GeoJsonPopup(
+            fields=["cell_id", "prob", "risk", "elev", "rain7d", "ndwi", "mndwi", "dist_drainage", "gt_status"],
+            aliases=["Spatial Cell:", "Flood Risk Probability:", "Risk Level:", "SRTM Elevation:", "7-Day Precipitation:", "NDWI (Water Index):", "MNDWI (Moisture Index):", "Distance to River:", "Ground Truth Extent:"],
+            style="""
+                background-color: #0F172A;
+                color: #F8FAFC;
+                font-family: 'Inter', -apple-system, sans-serif;
+                font-size: 11px;
+                border: 1px solid #38BDF8;
+                border-radius: 8px;
+                padding: 10px;
+            """
+        )
+
+        gj = folium.GeoJson(
+            geojson_obj,
+            name="Interactive Cell Inspector (Hover/Click)",
+            style_function=lambda x: {
+                "fillColor": "#000000",
+                "color": "#334155",
+                "fillOpacity": 0.0,
+                "weight": 0.15
+            },
+            highlight_function=lambda x: {
+                "fillColor": "#38BDF8",
+                "color": "#38BDF8",
+                "fillOpacity": 0.35,
+                "weight": 1.8
+            },
+            tooltip=tooltip,
+            popup=popup
+        )
+        gj.add_to(m)
+
+    # 9. Key Ground Stations & Landmark Markers
     landmarks = [
-        {"name": "Kaziranga National Park HQ (Kohora)", "lat": 26.585, "lon": 93.355, "type": "park"},
-        {"name": "Brahmaputra River Silghat Hydrological Gauge", "lat": 26.780, "lon": 93.120, "type": "gauge"},
-        {"name": "Bokakhat Sub-Divisional Operations Center", "lat": 26.620, "lon": 93.590, "type": "hq"},
-        {"name": "Diphlu River Wetland Confluence", "lat": 26.680, "lon": 93.280, "type": "wetland"},
+        {"name": "Kaziranga National Park HQ (Kohora)", "lat": 26.585, "lon": 93.355, "type": "park", "desc": "UNESCO World Heritage flood-dependent ecosystem"},
+        {"name": "Brahmaputra Silghat Hydrological Gauge", "lat": 26.780, "lon": 93.120, "type": "gauge", "desc": "CWC Primary Water Level Monitoring Station"},
+        {"name": "Bokakhat Emergency Operations Center", "lat": 26.620, "lon": 93.590, "type": "hq", "desc": "Sub-divisional disaster evacuation command"},
+        {"name": "Diphlu River Wetland Confluence", "lat": 26.680, "lon": 93.280, "type": "wetland", "desc": "Critical backwater inundation choke point"}
     ]
 
     for lm in landmarks:
         is_gauge = (lm["type"] == "gauge")
         folium.CircleMarker(
             location=[lm["lat"], lm["lon"]],
-            radius=5.5,
+            radius=6.0,
             color="#FFFFFF",
-            weight=1.2,
+            weight=1.5,
             fill=True,
             fill_color="#EF4444" if is_gauge else "#38BDF8",
             fill_opacity=0.95,
-            popup=f"<div style='font-family: Inter, sans-serif; font-size: 12px; color: #0F172A;'><b>{lm['name']}</b><br>Coordinates: {lm['lat']:.3f}°N, {lm['lon']:.3f}°E</div>"
+            popup=f"<div style='font-family: Inter, sans-serif; font-size: 12px; color: #0F172A; min-width: 180px;'><b>{lm['name']}</b><br><span style='color: #64748B;'>{lm['desc']}</span><br><b>Coordinates:</b> {lm['lat']:.3f}°N, {lm['lon']:.3f}°E</div>",
+            tooltip=f"{lm['name']} ({'Gauge' if is_gauge else 'Station'})"
         ).add_to(m)
 
-    folium.LayerControl(collapsed=False).add_to(m)
+    # 10. Map Navigation Controls & Layer Switcher
+    plugins.Fullscreen(position="topleft").add_to(m)
+    plugins.MousePosition(position="bottomleft", separator=" | ", empty_string="Coordinates: Lat, Lon").add_to(m)
+    folium.LayerControl(position="topright", collapsed=False).add_to(m)
     return m
 
 def plot_risk_timeline(timeline_df: pd.DataFrame) -> go.Figure:
