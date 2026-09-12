@@ -5,11 +5,22 @@ Loads real spatial coordinates, SRTM elevation gradients, JRC permanent river ch
 Sentinel-2 optical reflectances, multi-window CHIRPS rainfall, and Global Flood Database ground truth.
 """
 
+import json
+import os
 import numpy as np
 import pandas as pd
 from pathlib import Path
 import config
 from src.features import compute_ndvi, compute_ndwi, compute_mndwi, compute_slope, compute_dist_to_drainage
+
+__all__ = [
+    "generate_base_topography",
+    "generate_environmental_state",
+    "build_temporal_dataset",
+    "save_sample_dataset",
+    "load_data_for_tag",
+    "load_assam_boundary_and_rivers"
+]
 
 def generate_base_topography(rows: int, cols: int, seed: int = 42) -> dict:
     """
@@ -228,6 +239,67 @@ def load_data_for_tag(time_tag: str = "T") -> pd.DataFrame:
     if not csv_path.exists():
         save_sample_dataset()
     return pd.read_csv(csv_path)
+
+def load_assam_boundary_and_rivers() -> dict:
+    """
+    Loads official Assam district boundary rings (33 districts) and real Natural Earth 10m
+    Brahmaputra river network centerlines from local GeoJSON assets.
+    Gracefully handles missing files by logging a warning and returning empty lists.
+    """
+    data_dir = Path(__file__).resolve().parent.parent / "data"
+    districts_file = data_dir / "assam_districts.geojson"
+    rivers_file = data_dir / "assam_rivers_network.geojson"
+    if not rivers_file.exists():
+        rivers_file = data_dir / "assam_rivers.geojson"
+
+    district_rings = []
+    if districts_file.exists():
+        try:
+            with open(districts_file, "r", encoding="utf-8") as f:
+                d_geojson = json.load(f)
+            for feat in d_geojson.get("features", []):
+                geom = feat.get("geometry", {})
+                gtype = geom.get("type", "")
+                coords = geom.get("coordinates", [])
+                if gtype == "Polygon":
+                    for ring in coords:
+                        district_rings.append(ring)
+                elif gtype == "MultiPolygon":
+                    for poly in coords:
+                        for ring in poly:
+                            district_rings.append(ring)
+        except Exception as e:
+            print(f"[WARNING] Failed parsing district boundaries from {districts_file}: {e}")
+            district_rings = []
+    else:
+        print(f"[WARNING] Assam district GeoJSON not found at {districts_file}. Vector boundaries will be unavailable.")
+
+    river_lines = []
+    if rivers_file.exists():
+        try:
+            with open(rivers_file, "r", encoding="utf-8") as f:
+                r_geojson = json.load(f)
+            for feat in r_geojson.get("features", []):
+                geom = feat.get("geometry", {})
+                gtype = geom.get("type", "")
+                coords = geom.get("coordinates", [])
+                if gtype == "LineString":
+                    river_lines.append(coords)
+                elif gtype == "MultiLineString":
+                    for line in coords:
+                        river_lines.append(line)
+        except Exception as e:
+            print(f"[WARNING] Failed parsing river network from {rivers_file}: {e}")
+            river_lines = []
+    else:
+        print(f"[WARNING] Assam river network GeoJSON not found at {rivers_file}. Vector river network will be unavailable.")
+
+    return {
+        "district_rings": district_rings,
+        "river_lines": river_lines,
+        "districts_available": bool(district_rings),
+        "rivers_available": bool(river_lines)
+    }
 
 if __name__ == "__main__":
     save_sample_dataset()

@@ -14,9 +14,8 @@ import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 import numpy as np
-import matplotlib as mpl
-import matplotlib.pyplot as plt
 import config
+from src.data_loader import load_assam_boundary_and_rivers
 
 __all__ = [
     "load_assam_boundary_and_rivers",
@@ -31,58 +30,6 @@ __all__ = [
     "plot_feature_importance_chart",
     "plot_confusion_matrix_chart"
 ]
-
-def load_assam_boundary_and_rivers() -> dict:
-    """
-    Loads official Assam district boundary rings (33 districts) and real Natural Earth 10m
-    Brahmaputra river network centerlines from local GeoJSON assets.
-    """
-    data_dir = Path(__file__).resolve().parent.parent / "data"
-    districts_file = data_dir / "assam_districts.geojson"
-    rivers_file = data_dir / "assam_rivers_network.geojson"
-    if not rivers_file.exists():
-        rivers_file = data_dir / "assam_rivers.geojson"
-
-    district_rings = []
-    if districts_file.exists():
-        try:
-            with open(districts_file, "r", encoding="utf-8") as f:
-                d_geojson = json.load(f)
-            for feat in d_geojson.get("features", []):
-                geom = feat.get("geometry", {})
-                gtype = geom.get("type", "")
-                coords = geom.get("coordinates", [])
-                if gtype == "Polygon":
-                    for ring in coords:
-                        district_rings.append(ring)
-                elif gtype == "MultiPolygon":
-                    for poly in coords:
-                        for ring in poly:
-                            district_rings.append(ring)
-        except Exception:
-            district_rings = []
-
-    river_lines = []
-    if rivers_file.exists():
-        try:
-            with open(rivers_file, "r", encoding="utf-8") as f:
-                r_geojson = json.load(f)
-            for feat in r_geojson.get("features", []):
-                geom = feat.get("geometry", {})
-                gtype = geom.get("type", "")
-                coords = geom.get("coordinates", [])
-                if gtype == "LineString":
-                    river_lines.append(coords)
-                elif gtype == "MultiLineString":
-                    for line in coords:
-                        river_lines.append(line)
-        except Exception:
-            river_lines = []
-
-    return {
-        "district_rings": district_rings,
-        "river_lines": river_lines
-    }
 
 def generate_assam_topography(rows: int = 65, cols: int = 95, seed: int = 42) -> dict:
     """
