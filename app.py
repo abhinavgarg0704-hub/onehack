@@ -19,7 +19,7 @@ from src.alerts import evaluate_flood_alert
 import importlib
 import src.visualization
 # Ensure in-memory module has latest attributes in persistent Streamlit runtime
-if not hasattr(src.visualization, "build_3d_terrain_view"):
+if not hasattr(src.visualization, "build_hybrid_flood_simulation_map"):
     try:
         importlib.reload(src.visualization)
     except Exception:
@@ -27,6 +27,8 @@ if not hasattr(src.visualization, "build_3d_terrain_view"):
 
 try:
     from src.visualization import (
+        build_hybrid_flood_simulation_map,
+        compute_downhill_flow_paths,
         build_interactive_map,
         build_3d_terrain_view,
         plot_risk_timeline,
@@ -34,80 +36,16 @@ try:
         plot_confusion_matrix_chart
     )
 except ImportError:
-    try:
-        importlib.reload(src.visualization)
-        from src.visualization import (
-            build_interactive_map,
-            build_3d_terrain_view,
-            plot_risk_timeline,
-            plot_feature_importance_chart,
-            plot_confusion_matrix_chart
-        )
-    except ImportError:
-        from src.visualization import (
-            build_interactive_map,
-            plot_risk_timeline,
-            plot_feature_importance_chart,
-            plot_confusion_matrix_chart
-        )
-        import plotly.graph_objects as go
-        def build_3d_terrain_view(
-            elev_grid: np.ndarray,
-            lat_grid: np.ndarray,
-            lon_grid: np.ndarray,
-            surface_data: np.ndarray = None,
-            surface_name: str = "Flood Risk (%)",
-            vertical_exaggeration: float = 2.5
-        ) -> go.Figure:
-            lats = lat_grid[:, 0]
-            lons = lon_grid[0, :]
-            z_terrain = elev_grid * vertical_exaggeration
-            colorscale = [
-                [0.0, "#10B981"], [0.25, "#10B981"],
-                [0.25, "#F59E0B"], [0.50, "#F59E0B"],
-                [0.50, "#F97316"], [0.75, "#F97316"],
-                [0.75, "#EF4444"], [1.0, "#EF4444"]
-            ]
-            fig = go.Figure(data=[
-                go.Surface(
-                    x=lons, y=lats, z=z_terrain,
-                    surfacecolor=surface_data if surface_data is not None else elev_grid,
-                    cmin=0.0 if surface_data is not None else float(np.min(elev_grid)),
-                    cmax=100.0 if surface_data is not None else float(np.max(elev_grid)),
-                    colorscale=colorscale if surface_data is not None else "Viridis",
-                    colorbar=dict(
-                        title=dict(text=f"<b>{surface_name}</b>", font=dict(color="#F8FAFC", size=11, family="Inter, sans-serif")),
-                        tickfont=dict(color="#CBD5E1", size=10, family="Inter, sans-serif"),
-                        len=0.75, thickness=16
-                    ),
-                    hovertemplate=(
-                        "<b>Longitude:</b> %{x:.3f}°E<br>" +
-                        "<b>Latitude:</b> %{y:.3f}°N<br>" +
-                        "<b>SRTM Elevation:</b> %{customdata:.1f} m<br>" +
-                        "<b>" + surface_name + ":</b> %{surfacecolor:.1f}%<extra></extra>"
-                    ),
-                    customdata=elev_grid,
-                    lighting=dict(ambient=0.65, diffuse=0.8, roughness=0.5, specular=0.25)
-                )
-            ])
-            fig.update_layout(
-                title=dict(
-                    text="<b>3D TOPOGRAPHIC DIGITAL ELEVATION MODEL (SRTM) & INUNDATION PROFILE</b>",
-                    font=dict(color="#F8FAFC", size=13, family="Inter, sans-serif")
-                ),
-                scene=dict(
-                    xaxis=dict(title="Longitude (°E)", backgroundcolor="#0B111E", gridcolor="#1E293B", showbackground=True, color="#94A3B8"),
-                    yaxis=dict(title="Latitude (°N)", backgroundcolor="#0B111E", gridcolor="#1E293B", showbackground=True, color="#94A3B8"),
-                    zaxis=dict(title="Elevation (m)", backgroundcolor="#0B111E", gridcolor="#1E293B", showbackground=True, color="#94A3B8"),
-                    camera=dict(eye=dict(x=-1.5, y=-1.6, z=1.2)),
-                    aspectratio=dict(x=1.5, y=1.2, z=0.45)
-                ),
-                template="plotly_dark",
-                paper_bgcolor="#0F172A",
-                margin=dict(l=10, r=10, t=40, b=20),
-                height=640
-            )
-            return fig
+    importlib.reload(src.visualization)
+    from src.visualization import (
+        build_hybrid_flood_simulation_map,
+        compute_downhill_flow_paths,
+        build_interactive_map,
+        build_3d_terrain_view,
+        plot_risk_timeline,
+        plot_feature_importance_chart,
+        plot_confusion_matrix_chart
+    )
 from src.validation import run_comparative_evaluation
 
 # Page Configuration
@@ -701,15 +639,15 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# --- MAP OPERATIONAL HUD & COMPARISON CONTROLS ---
+# --- MAP OPERATIONAL HUD ---
 obs_date = df_step["date"].iloc[0]
 st.markdown(f"""
 <div class="map-hud-overlay">
     <div style="display: flex; align-items: center; gap: 10px;">
         <span class="hud-pulse-dot"></span>
         <div>
-            <span class="hud-title">● ANALYSIS ACTIVE &bull; SPATIAL RISK ENGINE</span>
-            <div class="hud-subtitle">ASSAM BRAHMAPUTRA ALLUVIAL CORRIDOR &bull; HISTORICAL PRE-EVENT ASSESSMENT</div>
+            <span class="hud-title">● TERRAIN-GUIDED FLOOD PROPAGATION ENGINE &bull; AI SIMULATION ACTIVE</span>
+            <div class="hud-subtitle">ASSAM BRAHMAPUTRA ALLUVIAL CORRIDOR &bull; TOPOGRAPHIC ELEVATION &bull; OVERLAND FLOW DYNAMICS</div>
         </div>
     </div>
     <div style="display: flex; align-items: center; gap: 8px;">
@@ -720,17 +658,30 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Row 1: Perspective Toggle, Environmental Variable Explorer, and Comparison View Mode
-ctrl_c1, ctrl_c2, ctrl_c3 = st.columns([1.3, 1.7, 1.8])
-with ctrl_c1:
-    dim_mode = st.radio(
-        "Visualization Perspective",
-        options=["🌐 2D Spatial Map", "🏔️ 3D Topographic Terrain"],
+# Row 1: Perspective Camera Presets, Environmental Layer Explorer, and Hydraulic Feature Toggles
+c_cam, c_var, c_layers = st.columns([1.5, 1.5, 1.8])
+
+with c_cam:
+    camera_choice = st.selectbox(
+        "🎥 3D Camera Perspective",
+        options=[
+            "3D Perspective (Alluvial Flight)",
+            "2D Plan View (Top-Down Orthogonal GIS)",
+            "River Corridor View (Braided Channel Axis)",
+            "Basin Cross-Section (S-N Elevation Relief)"
+        ],
         index=0,
-        horizontal=True,
-        help="Switch between 2D high-resolution satellite GIS map and 3D digital elevation model (SRTM)."
+        help="Switch camera views: 3D flight perspective, 2D top-down plan view, river channel axis, or cross-section."
     )
-with ctrl_c2:
+    cam_preset_map = {
+        "3D Perspective (Alluvial Flight)": "perspective",
+        "2D Plan View (Top-Down Orthogonal GIS)": "topdown",
+        "River Corridor View (Braided Channel Axis)": "corridor",
+        "Basin Cross-Section (S-N Elevation Relief)": "cross_section"
+    }
+    active_cam_preset = cam_preset_map[camera_choice]
+
+with c_var:
     var_explorer = st.selectbox(
         "Environmental Layer Explorer",
         options=[
@@ -743,69 +694,70 @@ with ctrl_c2:
             "Topographic Slope Gradient (°)"
         ],
         index=0,
-        help="Switch active raster surface across real satellite and environmental variables."
-    )
-with ctrl_c3:
-    layer_mode = st.radio(
-        "Display Layer Comparison",
-        options=["Command Composite", "AI Prediction Only", "Observed Flood Only", "Side-by-Side Comparison"],
-        index=0,
-        horizontal=True,
-        help="Instantly compare model prediction against observed historical DFO inundation."
+        help="Switch active surface texture across satellite features and topographic indices."
     )
 
-# Row 2: Timeline Playback Controls, Feature Toggles, and Opacity Sliders
-play_c1, play_c2, play_c3, play_c4 = st.columns([1.5, 1.2, 1.2, 1.1])
-with play_c1:
+with c_layers:
+    st.markdown("<div style='font-size: 0.70rem; font-weight: 700; text-transform: uppercase; color: #94A3B8; margin-bottom: 4px;'>Hydraulic Layer Toggles</div>", unsafe_allow_html=True)
+    tc1, tc2 = st.columns(2)
+    with tc1:
+        show_risk_surface = st.checkbox("AI Flood Risk", value=True, help="Overlay continuous/stepped AI flood probability.")
+        show_streamlines = st.checkbox("Flow Streamlines", value=True, help="Display gravity-driven -∇z overland flood propagation streamlines.")
+    with tc2:
+        show_river_water = st.checkbox("Braided Riverbed", value=True, help="Show permanent Brahmaputra channel mask (JRC water).")
+        show_observed_gt = st.checkbox("Observed Extent", value=True, help="Display DFO Event 4924 observed inundation ground truth.")
+
+# Row 2: Timeline Playback Controls, Threat Focal Cell Selector, and Vertical Exaggeration Slider
+p_c1, p_c2, p_c3 = st.columns([1.5, 1.8, 1.3])
+
+with p_c1:
     st.markdown("<div style='font-size: 0.70rem; font-weight: 700; text-transform: uppercase; color: #94A3B8; margin-bottom: 4px;'>⏱️ Timeline Step Controls</div>", unsafe_allow_html=True)
-    t_btn1, t_btn2, t_btn3 = st.columns([1, 1.4, 1])
-    with t_btn1:
+    tb1, tb2, tb3 = st.columns([1, 1.4, 1])
+    with tb1:
         if st.button("◀ Prev", key="btn_prev_timeline", help="Step backward in historical timeline"):
             if st.session_state.timeline_idx > 0:
                 st.session_state.timeline_idx -= 1
                 st.rerun()
-    with t_btn2:
+    with tb2:
         if st.button("⏵ Play", key="btn_play_timeline", help="Play through historical timeline"):
             for step_i in range(len(timeline_tags)):
                 st.session_state.timeline_idx = step_i
                 time.sleep(0.3)
             st.rerun()
-    with t_btn3:
+    with tb3:
         if st.button("Next ▶", key="btn_next_timeline", help="Step forward in historical timeline"):
             if st.session_state.timeline_idx < len(timeline_tags) - 1:
                 st.session_state.timeline_idx += 1
                 st.rerun()
 
-with play_c2:
-    show_contours = st.checkbox("Iso-Risk Contours (50% & 75%)", value=True, help="Display 50% High Risk and 75% Very High Risk probability contours.")
-    analyst_mode = st.checkbox("Analyst Mode (Target Dossier)", value=True, help="Enable detailed target intelligence card on cell click.")
+# Attach risk scores to df_step for interactive cell inspection
+df_step_inspector = df_step.copy()
+df_step_inspector["risk_score"] = spatial_preds["risk_scores"]
 
-with play_c3:
-    risk_opacity = st.slider("Surface Layer Opacity", min_value=0.20, max_value=1.00, value=0.85, step=0.05)
-    gt_opacity = st.slider("Observed Extent Opacity", min_value=0.20, max_value=1.00, value=0.72, step=0.05)
+with p_c2:
+    st.markdown("<div style='font-size: 0.70rem; font-weight: 700; text-transform: uppercase; color: #94A3B8; margin-bottom: 4px;'>🎯 Focal Target Cell & Downstream Flow Tracer</div>", unsafe_allow_html=True)
+    target_focal_choice = st.selectbox(
+        "Select Flood Threat Focal Cell",
+        options=[
+            "Kaziranga Central Floodplain (Row 18, Col 35)",
+            "Tezpur Alluvial Lowlands (Row 12, Col 15)",
+            "Silghat Braided Convergence (Row 22, Col 25)",
+            "North Bank Overbank Sump (Row 8, Col 48)",
+            "Peak Basin Threat Cell (Auto-Detected Highest Risk)"
+        ],
+        index=0,
+        help="Select any focal cell to highlight its position on 3D terrain and trace its downstream gravity flow path directly to the river."
+    )
 
-with play_c4:
-    st.markdown("<div style='height: 18px;'></div>", unsafe_allow_html=True)
-    if st.button("🎯 Reset View", key="btn_reset_map", help="Reset map zoom to study domain"):
-        st.rerun()
-
-# Evaluate active layers based on quick comparison toggle
-if layer_mode == "AI Prediction Only":
-    eff_show_risk = True
-    eff_show_gt = False
-    eff_show_water = True
-elif layer_mode == "Observed Flood Only":
-    eff_show_risk = False
-    eff_show_gt = True
-    eff_show_water = True
-elif layer_mode == "Side-by-Side Comparison":
-    eff_show_risk = True
-    eff_show_gt = True
-    eff_show_water = True
-else:  # Command Composite
-    eff_show_risk = show_risk_layer
-    eff_show_gt = show_gt_layer
-    eff_show_water = show_water_layer
+with p_c3:
+    vert_exag = st.slider(
+        "3D Vertical Exaggeration",
+        min_value=1.0,
+        max_value=4.0,
+        value=2.5,
+        step=0.5,
+        help="Scale topographic elevation relief to accentuate basin slopes."
+    )
 
 # Map variable selection to column identifier
 var_map = {
@@ -819,138 +771,150 @@ var_map = {
 }
 active_layer_var = var_map.get(var_explorer, "risk")
 
-# Attach risk scores to df_step for interactive cell inspector
-df_step_inspector = df_step.copy()
-df_step_inspector["risk_score"] = spatial_preds["risk_scores"]
+# Map selected focal choice to cell tuple
+if "Kaziranga" in target_focal_choice:
+    selected_cell_coords = (18, 35)
+elif "Tezpur" in target_focal_choice:
+    selected_cell_coords = (12, 15)
+elif "Silghat" in target_focal_choice:
+    selected_cell_coords = (22, 25)
+elif "North Bank" in target_focal_choice:
+    selected_cell_coords = (8, 48)
+else:  # Peak Threat Cell
+    max_idx = df_step_inspector["risk_score"].idxmax()
+    peak_row = int(df_step_inspector.loc[max_idx, "row"])
+    peak_col = int(df_step_inspector.loc[max_idx, "col"])
+    selected_cell_coords = (peak_row, peak_col)
 
-# RENDER BASED ON DIMENSION MODE
-map_click_data = None
-if dim_mode == "🏔️ 3D Topographic Terrain":
-    fig3d = build_3d_terrain_view(
-        elev_grid=topo["elevation"],
-        lat_grid=topo["lat_grid"],
-        lon_grid=topo["lon_grid"],
-        surface_data=spatial_preds["risk_grid"] if active_layer_var == "risk" else df_step[active_layer_var].values.reshape((config.STUDY_AREA["grid_rows"], config.STUDY_AREA["grid_cols"])),
-        surface_name="Flood Risk (%)" if active_layer_var == "risk" else var_explorer
-    )
-    st.plotly_chart(fig3d, use_container_width=True)
+# Compute downhill flow paths and single-cell path metrics
+flow_metrics = compute_downhill_flow_paths(
+    elev_grid=topo["elevation"],
+    risk_grid=spatial_preds["risk_grid"],
+    perm_water_grid=spatial_preds["perm_water_grid"],
+    lat_grid=topo["lat_grid"],
+    lon_grid=topo["lon_grid"],
+    risk_threshold=float(risk_threshold_slider),
+    selected_cell=selected_cell_coords
+)
+
+fig_hybrid = build_hybrid_flood_simulation_map(
+    elev_grid=topo["elevation"],
+    lat_grid=topo["lat_grid"],
+    lon_grid=topo["lon_grid"],
+    risk_grid=spatial_preds["risk_grid"],
+    perm_water_grid=spatial_preds["perm_water_grid"],
+    gt_grid=spatial_preds["gt_grid"],
+    df_step=df_step_inspector,
+    active_layer_var=active_layer_var,
+    show_risk=show_risk_surface,
+    show_streamlines=show_streamlines,
+    show_water=show_river_water,
+    show_gt=show_observed_gt,
+    show_selected_path=True,
+    vertical_exaggeration=float(vert_exag),
+    camera_preset=active_cam_preset,
+    selected_cell=selected_cell_coords,
+    risk_threshold=float(risk_threshold_slider)
+)
+
+st.plotly_chart(fig_hybrid, use_container_width=True)
+
+# Scientific Transparency Notice
+st.markdown("""
+<div style="background: rgba(15, 23, 42, 0.7); border: 1px solid #1E293B; border-radius: 8px; padding: 10px 16px; margin-top: 4px; margin-bottom: 16px;">
+    <span style="font-size: 0.74rem; font-weight: 700; color: #38BDF8; letter-spacing: 0.05em;">
+        💡 SCIENTIFIC TRANSPARENCY &bull; TERRAIN-GUIDED FLOOD FLOW PROJECTION / AI FLOOD PROPAGATION SIMULATION
+    </span>
+    <div style="font-size: 0.71rem; color: #94A3B8; line-height: 1.45; margin-top: 3px;">
+        Visualizes gravity-driven overland flood trajectories computed from Digital Elevation Model (SRTM) negative elevation gradients (<span style="color: #F8FAFC;">-∇z</span>) coupled with satellite optical moisture indices, AI-predicted inundation probability, and CHIRPS antecedent rainfall forcing. Represents hydraulic downhill routing toward the Brahmaputra River network; not an uncalibrated hydrodynamic Navier-Stokes CFD model.
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# TARGET LOCATION DOSSIER & DOWNHILL HYDRAULIC TRACE
+target_r, target_c = selected_cell_coords
+match_cells = df_step_inspector[(df_step_inspector["row"] == target_r) & (df_step_inspector["col"] == target_c)]
+if len(match_cells) > 0:
+    target_cell = match_cells.iloc[0]
 else:
-    # 2D Folium Map with signature-safe parameter binding
-    import inspect
-    sig = inspect.signature(build_interactive_map)
-    map_kwargs = {
-        "lat_grid": topo["lat_grid"],
-        "lon_grid": topo["lon_grid"],
-        "risk_grid": spatial_preds["risk_grid"],
-        "gt_grid": spatial_preds["gt_grid"],
-        "perm_water_grid": spatial_preds["perm_water_grid"],
-        "show_risk": eff_show_risk,
-        "show_gt": eff_show_gt,
-        "show_water": eff_show_water,
-        "risk_threshold": float(risk_threshold_slider)
-    }
+    target_cell = df_step_inspector.iloc[0]
 
-    if "df_step" in sig.parameters:
-        map_kwargs["df_step"] = df_step_inspector
-    if "active_layer_var" in sig.parameters:
-        map_kwargs["active_layer_var"] = active_layer_var
-    if "show_contours" in sig.parameters:
-        map_kwargs["show_contours"] = show_contours
-    if "show_inspector" in sig.parameters:
-        map_kwargs["show_inspector"] = True
-    if "risk_opacity" in sig.parameters:
-        map_kwargs["risk_opacity"] = float(risk_opacity)
-    if "gt_opacity" in sig.parameters:
-        map_kwargs["gt_opacity"] = float(gt_opacity)
+t_score = float(target_cell["risk_score"])
+t_cat = "VERY HIGH" if t_score >= 75 else ("HIGH" if t_score >= 50 else ("MODERATE" if t_score >= 25 else "LOW"))
+t_color = "#EF4444" if t_cat == "VERY HIGH" else ("#F97316" if t_cat == "HIGH" else ("#F59E0B" if t_cat == "MODERATE" else "#10B981"))
+t_gt = "Inundated (DFO Event 4924)" if int(target_cell["is_flooded"]) == 1 else "Dry Ground (Non-Flooded)"
 
-    try:
-        folium_map = build_interactive_map(**map_kwargs)
-    except TypeError:
-        folium_map = build_interactive_map(
-            lat_grid=topo["lat_grid"],
-            lon_grid=topo["lon_grid"],
-            risk_grid=spatial_preds["risk_grid"],
-            gt_grid=spatial_preds["gt_grid"],
-            perm_water_grid=spatial_preds["perm_water_grid"],
-            show_risk=eff_show_risk,
-            show_gt=eff_show_gt,
-            show_water=eff_show_water,
-            risk_threshold=float(risk_threshold_slider)
-        )
+sel_path_data = flow_metrics["selected_path"]
+flow_dist_km = sel_path_data["dist_km"] if sel_path_data else 0.0
+flow_drop_m = sel_path_data["elev_drop"] if sel_path_data else 0.0
+flow_slope = sel_path_data["hydraulic_slope"] if sel_path_data else 0.0
+flow_dest = sel_path_data["destination"] if sel_path_data else "Brahmaputra Mainstem Channel"
 
-    # Render map in Streamlit (Height 640px)
-    st_output = st_folium(folium_map, width="100%", height=640, returned_objects=["last_clicked"])
-    if st_output and "last_clicked" in st_output and st_output["last_clicked"]:
-        map_click_data = st_output["last_clicked"]
-
-# ANALYST MODE: TARGET LOCATION DOSSIER
-if analyst_mode:
-    if map_click_data:
-        c_lat = float(map_click_data["lat"])
-        c_lon = float(map_click_data["lng"])
-        dists = (df_step_inspector["lat"] - c_lat)**2 + (df_step_inspector["lon"] - c_lon)**2
-        nearest_idx = dists.idxmin()
-        target_cell = df_step_inspector.loc[nearest_idx]
-        target_source = f"Interactive Map Click ({c_lat:.3f}°N, {c_lon:.3f}°E)"
-    else:
-        target_idx = df_step_inspector["risk_score"].idxmax()
-        target_cell = df_step_inspector.loc[target_idx]
-        target_source = "Primary Threat Focal Cell (Kaziranga Alluvial Corridor)"
-
-    t_score = float(target_cell["risk_score"])
-    t_cat = "VERY HIGH" if t_score >= 75 else ("HIGH" if t_score >= 50 else ("MODERATE" if t_score >= 25 else "LOW"))
-    t_color = "#EF4444" if t_cat == "VERY HIGH" else ("#F97316" if t_cat == "HIGH" else ("#F59E0B" if t_cat == "MODERATE" else "#10B981"))
-    t_gt = "Inundated (DFO Event 4924)" if int(target_cell["is_flooded"]) == 1 else "Dry Ground (Non-Flooded)"
-
-    st.markdown(f"""
-    <div class="analyst-card" style="border-left-color: {t_color};">
-        <div class="analyst-header">
-            <div>
-                <span style="font-size: 0.72rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #38BDF8;">
-                    🎯 TARGET LOCATION DOSSIER &bull; {target_source}
-                </span>
-                <div style="font-size: 0.70rem; color: #64748B;">Cell [{int(target_cell['row'])}, {int(target_cell['col'])}] &bull; Coordinates: {target_cell['lat']:.3f}°N, {target_cell['lon']:.3f}°E</div>
-            </div>
-            <span class="threat-badge" style="background-color: {t_color}; font-size: 0.74rem;">
-                {t_cat} RISK ({t_score:.1f}%)
+st.markdown(f"""
+<div class="analyst-card" style="border-left-color: {t_color};">
+    <div class="analyst-header">
+        <div>
+            <span style="font-size: 0.72rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #38BDF8;">
+                🎯 TARGET LOCATION DOSSIER &bull; {target_focal_choice}
             </span>
+            <div style="font-size: 0.70rem; color: #64748B;">Cell [{int(target_cell['row'])}, {int(target_cell['col'])}] &bull; Coordinates: {target_cell['lat']:.3f}°N, {target_cell['lon']:.3f}°E</div>
         </div>
-        <div class="analyst-grid">
-            <div class="analyst-item">
-                <div class="analyst-item-label">AI Flood Risk</div>
-                <div class="analyst-item-value" style="color: {t_color};">{t_score:.1f}%</div>
-            </div>
-            <div class="analyst-item">
-                <div class="analyst-item-label">7-Day Rainfall</div>
-                <div class="analyst-item-value">{float(target_cell['rainfall_7d']):.1f} mm</div>
-            </div>
-            <div class="analyst-item">
-                <div class="analyst-item-label">SRTM Elevation</div>
-                <div class="analyst-item-value">{float(target_cell['elevation']):.0f} m</div>
-            </div>
-            <div class="analyst-item">
-                <div class="analyst-item-label">Distance to River</div>
-                <div class="analyst-item-value">{float(target_cell['dist_to_drainage']):.0f} m</div>
-            </div>
-            <div class="analyst-item">
-                <div class="analyst-item-label">NDWI (Water Index)</div>
-                <div class="analyst-item-value">{float(target_cell['ndwi']):.2f}</div>
-            </div>
-            <div class="analyst-item">
-                <div class="analyst-item-label">MNDWI (Moisture)</div>
-                <div class="analyst-item-value">{float(target_cell['mndwi']):.2f}</div>
-            </div>
-            <div class="analyst-item">
-                <div class="analyst-item-label">Slope Gradient</div>
-                <div class="analyst-item-value">{float(target_cell['slope']):.2f}°</div>
-            </div>
-            <div class="analyst-item">
-                <div class="analyst-item-label">Observed Ground Truth</div>
-                <div class="analyst-item-value" style="font-size: 0.76rem; color: #38BDF8;">{t_gt}</div>
-            </div>
+        <span class="threat-badge" style="background-color: {t_color}; font-size: 0.74rem;">
+            {t_cat} RISK ({t_score:.1f}%)
+        </span>
+    </div>
+    <div class="analyst-grid">
+        <div class="analyst-item">
+            <div class="analyst-item-label">AI Flood Risk</div>
+            <div class="analyst-item-value" style="color: {t_color};">{t_score:.1f}%</div>
+        </div>
+        <div class="analyst-item">
+            <div class="analyst-item-label">7-Day Rainfall</div>
+            <div class="analyst-item-value">{float(target_cell['rainfall_7d']):.1f} mm</div>
+        </div>
+        <div class="analyst-item">
+            <div class="analyst-item-label">SRTM Elevation</div>
+            <div class="analyst-item-value">{float(target_cell['elevation']):.0f} m</div>
+        </div>
+        <div class="analyst-item">
+            <div class="analyst-item-label">Topographic Slope</div>
+            <div class="analyst-item-value">{float(target_cell['slope']):.2f}°</div>
+        </div>
+        <div class="analyst-item">
+            <div class="analyst-item-label">Downhill Flow to River</div>
+            <div class="analyst-item-value" style="color: #FBBF24;">{flow_dist_km:.2f} km</div>
+        </div>
+        <div class="analyst-item">
+            <div class="analyst-item-label">Hydraulic Elevation Drop</div>
+            <div class="analyst-item-value" style="color: #38BDF8;">{flow_drop_m:.1f} m (Δz)</div>
+        </div>
+        <div class="analyst-item">
+            <div class="analyst-item-label">Overland Descent Gradient</div>
+            <div class="analyst-item-value">{flow_slope:.2f}%</div>
+        </div>
+        <div class="analyst-item">
+            <div class="analyst-item-label">Terminal Drainage Outfall</div>
+            <div class="analyst-item-value" style="font-size: 0.74rem; color: #38BDF8;">{flow_dest}</div>
+        </div>
+        <div class="analyst-item">
+            <div class="analyst-item-label">NDWI (Water Index)</div>
+            <div class="analyst-item-value">{float(target_cell['ndwi']):.2f}</div>
+        </div>
+        <div class="analyst-item">
+            <div class="analyst-item-label">MNDWI (Moisture)</div>
+            <div class="analyst-item-value">{float(target_cell['mndwi']):.2f}</div>
+        </div>
+        <div class="analyst-item">
+            <div class="analyst-item-label">Distance to Drainage</div>
+            <div class="analyst-item-value">{float(target_cell['dist_to_drainage']):.0f} m</div>
+        </div>
+        <div class="analyst-item">
+            <div class="analyst-item-label">Observed Ground Truth</div>
+            <div class="analyst-item-value" style="font-size: 0.76rem; color: #38BDF8;">{t_gt}</div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+</div>
+""", unsafe_allow_html=True)
 
 st.markdown("</div>", unsafe_allow_html=True)
 
