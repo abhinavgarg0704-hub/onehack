@@ -1,0 +1,35 @@
+{
+  "Random Forest": {
+    "precision": 1.0,
+    "recall": 0.8977,
+    "f1": 0.9461,
+    "iou": 0.8977,
+    "roc_auc": 0.9998,
+    "confusion_matrix": {
+      "tn": 2675,
+      "fp": 0,
+      "fn": 110,
+      "tp": 965
+    },
+    "threshold": 0.5
+  },
+  "XGBoost": {
+    "precision": 1.0,
+    "recall": 0.7656,
+    "f1": 0.8672,
+    "iou": 0.7656,
+    "roc_auc": 0.9993,
+    "confusion_matrix": {
+      "tn": 2675,
+      "fp": 0,
+      "fn": 252,
+      "tp": 823
+    },
+    "threshold": 0.5
+  },
+  "evaluation_event": "July 2020 Assam Brahmaputra Catastrophic Flood",
+  "target_date": "2020-07-14",
+  "total_test_samples": 3750,
+  "flood_pixels_count": 1075,
+  "non_flood_pixels_count": 2675
+}
