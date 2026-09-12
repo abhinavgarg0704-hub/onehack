@@ -11,7 +11,93 @@ import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 import config
+
+def build_3d_terrain_view(
+    elev_grid: np.ndarray,
+    lat_grid: np.ndarray,
+    lon_grid: np.ndarray,
+    surface_data: np.ndarray = None,
+    surface_name: str = "Flood Risk (%)",
+    vertical_exaggeration: float = 2.5
+) -> go.Figure:
+    """
+    Renders an interactive 3D digital elevation model (DEM) surface of the Assam Brahmaputra
+    alluvial basin using real SRTM elevation data and colored by model-predicted flood risk.
+    """
+    lats = lat_grid[:, 0]
+    lons = lon_grid[0, :]
+    z_terrain = elev_grid * vertical_exaggeration
+
+    if surface_data is None:
+        surface_data = elev_grid
+        surface_name = "Elevation (m)"
+        colorscale = "Viridis"
+        cmin = float(np.min(elev_grid))
+        cmax = float(np.max(elev_grid))
+    else:
+        colorscale = [
+            [0.0, "#10B981"],
+            [0.25, "#10B981"],
+            [0.25, "#F59E0B"],
+            [0.50, "#F59E0B"],
+            [0.50, "#F97316"],
+            [0.75, "#F97316"],
+            [0.75, "#EF4444"],
+            [1.0, "#EF4444"]
+        ]
+        cmin = 0.0
+        cmax = 100.0
+
+    fig = go.Figure(data=[
+        go.Surface(
+            x=lons,
+            y=lats,
+            z=z_terrain,
+            surfacecolor=surface_data,
+            cmin=cmin,
+            cmax=cmax,
+            colorscale=colorscale,
+            colorbar=dict(
+                title=dict(text=f"<b>{surface_name}</b>", font=dict(color="#F8FAFC", size=11, family="Inter, sans-serif")),
+                tickfont=dict(color="#CBD5E1", size=10, family="Inter, sans-serif"),
+                len=0.75,
+                thickness=16
+            ),
+            hovertemplate=(
+                "<b>Longitude:</b> %{x:.3f}°E<br>" +
+                "<b>Latitude:</b> %{y:.3f}°N<br>" +
+                "<b>SRTM Elevation:</b> %{customdata:.1f} m<br>" +
+                "<b>" + surface_name + ":</b> %{surfacecolor:.1f}%<extra></extra>"
+            ),
+            customdata=elev_grid,
+            lighting=dict(ambient=0.65, diffuse=0.8, roughness=0.5, specular=0.25)
+        )
+    ])
+
+    fig.update_layout(
+        title=dict(
+            text="<b>3D TOPOGRAPHIC DIGITAL ELEVATION MODEL (SRTM) & INUNDATION PROFILE</b>",
+            font=dict(color="#F8FAFC", size=13, family="Inter, sans-serif")
+        ),
+        scene=dict(
+            xaxis=dict(title="Longitude (°E)", backgroundcolor="#0B111E", gridcolor="#1E293B", showbackground=True, color="#94A3B8"),
+            yaxis=dict(title="Latitude (°N)", backgroundcolor="#0B111E", gridcolor="#1E293B", showbackground=True, color="#94A3B8"),
+            zaxis=dict(title="Elevation (m)", backgroundcolor="#0B111E", gridcolor="#1E293B", showbackground=True, color="#94A3B8"),
+            camera=dict(
+                eye=dict(x=-1.5, y=-1.6, z=1.2)
+            ),
+            aspectratio=dict(x=1.5, y=1.2, z=0.45)
+        ),
+        template="plotly_dark",
+        paper_bgcolor="#0F172A",
+        margin=dict(l=10, r=10, t=40, b=20),
+        height=640
+    )
+
+    return fig
 
 def build_interactive_map(
     lat_grid: np.ndarray,
@@ -20,18 +106,23 @@ def build_interactive_map(
     gt_grid: np.ndarray,
     perm_water_grid: np.ndarray,
     df_step: pd.DataFrame = None,
+    active_layer_var: str = "risk",
     show_risk: bool = True,
     show_gt: bool = True,
     show_water: bool = True,
+    show_contours: bool = True,
     show_inspector: bool = True,
     risk_threshold: float = 20.0,
     risk_opacity: float = 0.85,
-    gt_opacity: float = 0.72
+    gt_opacity: float = 0.72,
+    **kwargs
 ) -> folium.Map:
     """
     Constructs an interactive satellite intelligence Folium map featuring:
     - Multi-basemap selector (Carto Dark Command, Esri High-Res Satellite, Standard Topo)
     - Semantic continuous/stepped risk surface overlay (0-25% Low, 25-50% Mod, 50-75% High, 75-100% Very High)
+    - Environmental layer switching (AI Risk, SRTM Elevation, NDWI, MNDWI, Rainfall, Slope, River Proximity)
+    - 50% and 75% iso-probability risk contour boundaries
     - Distinct observed historical flood extent overlay (ground truth)
     - Permanent Brahmaputra braided river channel mask (JRC surface water)
     - Interactive 3,750-cell GeoJSON risk inspector with hover tooltips and click popups from real data
@@ -83,39 +174,89 @@ def build_interactive_map(
         tooltip=f"Study Domain: {config.STUDY_AREA['name']} (26.45°N–26.85°N, 93.05°E–93.65°E)"
     ).add_to(m)
 
-    # 5. Continuous & Stepped Risk Surface Overlay
-    # Semantic color palette matching the locked legend:
-    # 0–25%    LOW: Emerald (#10B981)
-    # 25–50%   MODERATE: Amber (#F59E0B)
-    # 50–75%   HIGH: Orange (#F97316)
-    # 75–100%  VERY HIGH: Crimson (#EF4444)
+    # 5. Continuous & Stepped Risk Surface or Environmental Feature Overlay
     if show_risk:
-        rgba_img = np.zeros((rows, cols, 4), dtype=np.uint8)
-        
-        for r in range(rows):
-            for c in range(cols):
-                score = risk_grid[r, c]
-                if score < risk_threshold:
-                    continue
-                if score < 25.0:
-                    rgba_img[r, c] = [16, 185, 129, int(255 * risk_opacity * 0.70)]
-                elif score < 50.0:
-                    rgba_img[r, c] = [245, 158, 11, int(255 * risk_opacity * 0.85)]
-                elif score < 75.0:
-                    rgba_img[r, c] = [249, 115, 22, int(255 * risk_opacity * 0.95)]
-                else:
-                    rgba_img[r, c] = [239, 68, 68, int(255 * risk_opacity)]
+        if active_layer_var == "risk" or df_step is None:
+            rgba_img = np.zeros((rows, cols, 4), dtype=np.uint8)
+            for r in range(rows):
+                for c in range(cols):
+                    score = risk_grid[r, c]
+                    if score < risk_threshold:
+                        continue
+                    if score < 25.0:
+                        rgba_img[r, c] = [16, 185, 129, int(255 * risk_opacity * 0.70)]
+                    elif score < 50.0:
+                        rgba_img[r, c] = [245, 158, 11, int(255 * risk_opacity * 0.85)]
+                    elif score < 75.0:
+                        rgba_img[r, c] = [249, 115, 22, int(255 * risk_opacity * 0.95)]
+                    else:
+                        rgba_img[r, c] = [239, 68, 68, int(255 * risk_opacity)]
+            layer_title = "Predicted Flood Risk Surface"
+        else:
+            # Render Environmental Feature Layer
+            cmap_dict = {
+                "elevation": ("terrain", "SRTM Elevation Surface (m)"),
+                "ndwi": ("GnBu", "NDWI Optical Water Index"),
+                "mndwi": ("PuBuGn", "MNDWI Moisture Index"),
+                "rainfall_7d": ("Blues", "7-Day Cumulative Rain (mm)"),
+                "slope": ("YlOrBr", "Topographic Slope (°)"),
+                "dist_to_drainage": ("Blues_r", "Distance to Drainage (m)")
+            }
+            cmap_name, layer_title = cmap_dict.get(active_layer_var, ("viridis", f"{active_layer_var} Surface"))
+            vals = df_step[active_layer_var].values.reshape((rows, cols))
+            vmin = float(vals.min())
+            vmax = float(vals.max())
+            if vmin == vmax:
+                vmax = vmin + 1.0
+            norm = plt.Normalize(vmin=vmin, vmax=vmax)
+            rgba_img = (mpl.colormaps[cmap_name](norm(vals)) * 255).astype(np.uint8)
+            rgba_img[:, :, 3] = int(255 * risk_opacity)
 
         ImageOverlay(
             image=rgba_img,
             bounds=bounds,
             opacity=1.0,
-            name="Predicted Flood Risk Surface",
+            name=layer_title,
             interactive=True,
             cross_origin=False
         ).add_to(m)
 
-    # 6. Permanent Riverbed Mask Overlay (Brahmaputra braided mainstem)
+    # 6. Iso-Probability Risk Contours (50% High Risk, 75% Very High Risk)
+    if show_contours and risk_grid is not None:
+        try:
+            cs = plt.contour(lon_grid, lat_grid, risk_grid, levels=[50.0, 75.0])
+            if len(cs.allsegs) >= 2:
+                # 50% High-Risk contour (Orange dashed)
+                for seg in cs.allsegs[0]:
+                    if len(seg) > 2:
+                        coords = [[float(pt[1]), float(pt[0])] for pt in seg]
+                        folium.PolyLine(
+                            locations=coords,
+                            color="#F97316",
+                            weight=2.2,
+                            dash_array="5, 5",
+                            opacity=0.90,
+                            tooltip="50% High-Risk Iso-Probability Contour",
+                            name="50% High-Risk Contour"
+                        ).add_to(m)
+                # 75% Very-High-Risk contour (Crimson dashed)
+                for seg in cs.allsegs[1]:
+                    if len(seg) > 2:
+                        coords = [[float(pt[1]), float(pt[0])] for pt in seg]
+                        folium.PolyLine(
+                            locations=coords,
+                            color="#EF4444",
+                            weight=2.8,
+                            dash_array="3, 3",
+                            opacity=0.95,
+                            tooltip="75% Very-High-Risk Iso-Probability Contour",
+                            name="75% Very-High-Risk Contour"
+                        ).add_to(m)
+            plt.close()
+        except Exception:
+            pass
+
+    # 7. Permanent Riverbed Mask Overlay (Brahmaputra braided mainstem)
     if show_water:
         water_rgba = np.zeros((rows, cols, 4), dtype=np.uint8)
         water_rgba[perm_water_grid == 1] = [2, 132, 199, 215]  # Sky-600 Deep Riverbed
