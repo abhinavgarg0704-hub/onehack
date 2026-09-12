@@ -33,13 +33,18 @@ def validate_features(df: pd.DataFrame) -> pd.DataFrame:
             
     return cleaned
 
-def get_train_test_split(seed: int = 42):
+def get_spatial_temporal_split(seed: int = 42):
     """
-    Constructs train and test datasets strictly avoiding temporal leakage:
-    - Train data: Antecedent conditions and baseline events (T-7, T-5, T-3, T-2)
-    - Test / Validation data: Peak historical event holdout (T, July 14, 2020)
-    This strictly evaluates whether the model can predict the severe peak flood
-    using environmental and antecedent drivers learned before the peak.
+    Constructs train and test datasets strictly avoiding both temporal and spatial leakage:
+    - Spatial Split:
+        * Training Region [Area A]: West and Central Kaziranga/Nagaon alluvial plain (cols <= 52)
+        * Holdout Test Region [Area B]: East Kaziranga/Bokakhat alluvial plain (cols > 52)
+    - Temporal Split:
+        * Training Dates: Antecedent conditions (T-7, T-5, T-3, T-2)
+        * Test Date: Peak historical flood holdout (T, July 14, 2020)
+    
+    This evaluates whether the model trained on antecedent conditions in one geographic sector
+    can accurately predict catastrophic flood inundation in an unseen geographic sector at peak flood.
     """
     from src.data_loader import load_data_for_tag
 
@@ -52,10 +57,18 @@ def get_train_test_split(seed: int = 42):
     df_train = validate_features(df_train_raw)
     df_test = validate_features(df_test_raw)
 
-    X_train = df_train[config.FEATURE_COLUMNS]
-    y_train = df_train[config.TARGET_COLUMN]
+    train_mask = df_train["col"] <= 52
+    test_mask = df_test["col"] > 52
 
-    X_test = df_test[config.FEATURE_COLUMNS]
-    y_test = df_test[config.TARGET_COLUMN]
+    X_train = df_train.loc[train_mask, config.FEATURE_COLUMNS]
+    y_train = df_train.loc[train_mask, config.TARGET_COLUMN]
 
-    return X_train, y_train, X_test, y_test, df_test
+    X_test = df_test.loc[test_mask, config.FEATURE_COLUMNS]
+    y_test = df_test.loc[test_mask, config.TARGET_COLUMN]
+
+    return X_train, y_train, X_test, y_test, df_test.loc[test_mask]
+
+def get_train_test_split(seed: int = 42):
+    """Default split uses the rigorous Spatial-Temporal Block Split."""
+    return get_spatial_temporal_split(seed=seed)
+

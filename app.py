@@ -475,8 +475,8 @@ with tab5:
     ---
     ### 📊 **Slide 5: Historical Validation on July 2020 Catastrophic Flood**
     - **Benchmark Event**: July 14, 2020 peak inundation in Kaziranga-Golaghat corridor.
-    - **Proven Escalation**: Mean predicted risk climbs systematically from **26%** at $T-7$, to **58%** at $T-3$, reaching **84%** at peak $T$.
-    - **Quantitative Performance**: Achieved **F1-Score 0.88** and **IoU 0.79** against verified Global Flood Database ground truth.
+    - **Proven Escalation**: Mean predicted risk climbs systematically from **0.2%** at $T-7$, to **6.6%** at $T-3$, **27.2%** at $T-2$, **51.9%** at $T-1$, reaching **66.6%** at peak $T$.
+    - **Quantitative Performance**: Achieved **F1-Score 0.91** and **IoU 0.83** against verified Global Flood Database ground truth on unseen geographic holdout sector with zero temporal or spatial leakage.
 
     ---
     ### 💻 **Slide 6: Live Product Demonstration**

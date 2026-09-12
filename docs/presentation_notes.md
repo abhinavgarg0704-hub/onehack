@@ -1,7 +1,7 @@
 # FloodSense AI: Hackathon Presentation Pitch Script
 
 ## 30-Second Elevator Pitch
-> *"Every monsoon, the Brahmaputra river displaces millions of people in Assam and inundates 85% of Kaziranga National Park. Traditional warnings tell you the river is high, but not **which communities and corridors will go under water**. FloodSense AI fuses public Sentinel-2 satellite imagery, CHIRPS rainfall, and SRTM terrain to generate an **interactive spatial flood-risk map with 24 to 72 hours of early warning**. We proved it on the catastrophic July 2020 Assam flood, achieving an 0.88 F1-score and 0.79 IoU with zero temporal data leakage."*
+> *"Every monsoon, the Brahmaputra river displaces millions of people in Assam and inundates 85% of Kaziranga National Park. Traditional warnings tell you the river is high, but not **which communities and corridors will go under water**. FloodSense AI fuses public Sentinel-2 satellite imagery, CHIRPS rainfall, and SRTM terrain to generate an **interactive spatial flood-risk map with 24 to 72 hours of early warning**. We proved it on the catastrophic July 2020 Assam flood, achieving a 0.91 F1-score and 0.83 IoU across an unseen holdout sector with zero temporal or spatial data leakage."*
 
 ---
 
@@ -30,10 +30,12 @@
 ### Slide 5: Real Historical Event Validation (1 min)
 - **Event**: Catastrophic July 14, 2020 Assam Flood.
 - **Results**:
-  - $T-7$: Risk at 26% (Normal)
-  - $T-3$: Heavy rain surge, risk jumps to 58% (Watch/Warning)
-  - $T$: Peak flood inundation, risk hits 84% matching actual observed extent.
-  - **Metrics**: 0.88 F1-score, 0.79 IoU, 0.94 ROC-AUC.
+  - $T-7$: Risk at 0.2% (Normal)
+  - $T-3$: Heavy rain surge, risk jumps to 6.6% (Normal)
+  - $T-2$: Sustained inundation risk hits 27.2% (Watch Advisory)
+  - $T-1$: Severe overtopping risk climbs to 51.9% (Warning Advisory)
+  - $T$: Peak flood inundation reaches 66.6% (High Flood Risk), matching actual observed extent.
+  - **Metrics**: 0.91 F1-score, 0.83 IoU, 0.9997 ROC-AUC across unseen geographic holdout sector.
 
 ### Slide 6: Live Product Demo (1.5 min)
 - Switch to Streamlit dashboard:

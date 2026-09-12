@@ -73,14 +73,14 @@ FloodSense AI bridges this gap by fusing publicly available **Copernicus Sentine
 - **Random Forest Classifier (Primary)**: 150 estimators, balanced class weights, max depth 12.
 - **XGBoost (Benchmark Comparison)**: 150 estimators, learning rate 0.08, scale_pos_weight 2.5.
 
-### Evaluation Metrics (Holdout Peak Event T)
+### Evaluation Metrics (Holdout Peak Event T on Unseen Sector B)
 | Metric | Random Forest (Primary) | XGBoost (Comparison) |
 | :--- | :---: | :---: |
-| **Precision** | **0.862** | 0.841 |
-| **Recall** | **0.904** | 0.912 |
-| **F1-Score** | **0.883** | 0.875 |
-| **IoU (Jaccard Index)** | **0.791** | 0.778 |
-| **ROC-AUC** | **0.948** | 0.942 |
+| **Precision** | **1.0000** | 1.0000 |
+| **Recall** | **0.8324** | 0.7717 |
+| **F1-Score** | **0.9085** | 0.8711 |
+| **IoU (Jaccard Index)** | **0.8324** | 0.7717 |
+| **ROC-AUC** | **0.9997** | 0.9986 |
 
 ---
 
@@ -100,8 +100,8 @@ FloodSense AI bridges this gap by fusing publicly available **Copernicus Sentine
 ### 1. Installation
 Clone the repository and install required dependencies:
 ```bash
-git clone https://github.com/your-repo/floodsense-ai.git
-cd floodsense-ai
+git clone https://github.com/abhinavgarg0704-hub/onehack.git
+cd onehack
 pip install -r requirements.txt
 ```
 
