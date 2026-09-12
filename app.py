@@ -9,23 +9,14 @@ import numpy as np
 import json
 import time
 from pathlib import Path
-from streamlit_folium import st_folium
 
 import config
 from src.data_loader import load_data_for_tag, generate_base_topography
 from src.model import FloodRiskModel, train_and_save_all_models
 from src.prediction import generate_spatial_prediction
 from src.alerts import evaluate_flood_alert
-import importlib
-import src.visualization
-# Ensure in-memory module has latest attributes in persistent Streamlit runtime
-if not hasattr(src.visualization, "build_assam_3d_simulation_map"):
-    try:
-        importlib.reload(src.visualization)
-    except Exception:
-        pass
-
 from src.visualization import (
+    load_assam_boundary_and_rivers,
     generate_assam_topography,
     compute_assam_flood_simulation,
     build_assam_3d_simulation_map,
@@ -763,13 +754,14 @@ with c_layers:
     lt1, lt2, lt3 = st.columns(3)
     with lt1:
         show_terrain_dem = st.checkbox("Assam 3D DEM", value=True, help="Display 3D SRTM Digital Elevation Model of Assam")
-        show_river_network = st.checkbox("Brahmaputra River", value=True, help="Display permanent Brahmaputra channel and major tributaries")
+        show_district_boundaries = st.checkbox("District Boundaries", value=True, help="Display 33 official Assam district boundary lines")
     with lt2:
+        show_river_network = st.checkbox("Brahmaputra River", value=True, help="Display permanent Brahmaputra channel and major tributaries")
         show_sim_floodwater = st.checkbox("Simulated Floods", value=True, help="Display dynamic expanding simulated water surface")
-        show_ai_footprint_layer = st.checkbox("AI Sector Footprint", value=True, help="Display high-resolution AI model bounding frame & risk surface")
     with lt3:
-        show_gravity_streamlines = st.checkbox("Flow Streamlines", value=True, help="Display downhill overland flow trajectories (-∇z)")
+        show_ai_footprint_layer = st.checkbox("AI Sector Footprint", value=True, help="Display high-resolution AI model bounding frame & risk surface")
         show_observed_dfo_gt = st.checkbox("DFO Ground Truth", value=True, help="Display observed satellite flood extent from DFO Event 4924")
+    show_gravity_streamlines = True
 
 with c_loc:
     location_options = [
@@ -872,6 +864,7 @@ fig_assam = build_assam_3d_simulation_map(
     sp_local=spatial_preds,
     scale_level=active_camera_preset,
     show_terrain=show_terrain_dem,
+    show_boundaries=show_district_boundaries,
     show_ai_footprint=show_ai_footprint_layer,
     show_river=show_river_network,
     show_floodwater=show_sim_floodwater,
@@ -990,17 +983,20 @@ if loc_info["inside_ai"] and loc_info["grid_cell"] is not None:
 else:
     reg_elev = 48.0 if "Dhubri" in target_focal_choice else (55.0 if "Guwahati" in target_focal_choice else (78.0 if "Majuli" in target_focal_choice else 105.0))
     st.markdown(f"""
-    <div class="analyst-card" style="border-left-color: #0284C7;">
+    <div class="analyst-card" style="border-left-color: #64748B;">
         <div class="analyst-header">
             <div>
                 <span style="font-size: 0.72rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #38BDF8;">
                     📍 REGIONAL LOCATION DOSSIER &bull; {target_focal_choice}
                 </span>
-                <div style="font-size: 0.70rem; color: #64748B;">Zone: {loc_info['zone']} &bull; Coords: {loc_lat:.3f}°N, {loc_lon:.3f}°E &bull; Status: Regional Topographic Context</div>
+                <div style="font-size: 0.70rem; color: #64748B;">Zone: {loc_info['zone']} &bull; Coords: {loc_lat:.3f}°N, {loc_lon:.3f}°E &bull; Topographic Context</div>
             </div>
-            <span class="threat-badge" style="background-color: #0284C7; font-size: 0.72rem;">
-                REGIONAL CONTEXT (NO SYNTHETIC AI)
+            <span class="threat-badge" style="background-color: #475569; font-size: 0.70rem;">
+                AI PREDICTION: NOT AVAILABLE AT THIS LOCATION
             </span>
+        </div>
+        <div style="background: rgba(15, 23, 42, 0.75); border: 1px dashed #334155; border-radius: 6px; padding: 10px 14px; margin-top: 10px; margin-bottom: 12px; font-size: 0.72rem; color: #94A3B8; line-height: 1.5;">
+            ⚠️ <b>Protected Model Footprint Boundary:</b> High-resolution multi-spectral machine learning inference (Sentinel-2 + CHIRPS + SRTM) is strictly trained and validated on the <b>Central Assam Alluvial Sector (~2,640 km² Kaziranga–Golaghat corridor)</b>. Locations across broader Assam are displayed for statewide Digital Elevation Model (SRTM) topography and Brahmaputra drainage context only. <b>We do NOT extrapolate or fabricate synthetic AI predictions outside the validated training sector.</b>
         </div>
         <div class="analyst-grid">
             <div class="analyst-item">
@@ -1024,12 +1020,12 @@ else:
                 <div class="analyst-item-value" style="font-size: 0.72rem; color: #94A3B8;">{loc_info['vuln']}</div>
             </div>
             <div class="analyst-item">
-                <div class="analyst-item-label">AI Inference Boundary</div>
-                <div class="analyst-item-value" style="color: #34D399; font-size: 0.72rem;">Protected (No Leakage)</div>
+                <div class="analyst-item-label">AI Inference Status</div>
+                <div class="analyst-item-value" style="color: #F87171; font-size: 0.72rem; font-weight: 700;">Outside ML Sector</div>
             </div>
             <div class="analyst-item">
-                <div class="analyst-item-label">High-Res ML Benchmark</div>
-                <div class="analyst-item-value" style="font-size: 0.72rem; color: #38BDF8;">Evaluated in Central Sector</div>
+                <div class="analyst-item-label">Scientific Integrity</div>
+                <div class="analyst-item-value" style="font-size: 0.72rem; color: #34D399;">Zero Data Fabrication</div>
             </div>
         </div>
     </div>

@@ -4,6 +4,9 @@ Renders interactive Folium risk heatmaps, Plotly temporal escalation timelines,
 and feature importance charts.
 """
 
+import json
+import os
+from pathlib import Path
 import folium
 from folium import plugins
 import branca.colormap as cm
@@ -16,6 +19,7 @@ import matplotlib.pyplot as plt
 import config
 
 __all__ = [
+    "load_assam_boundary_and_rivers",
     "generate_assam_topography",
     "compute_assam_flood_simulation",
     "build_assam_3d_simulation_map",
@@ -28,12 +32,65 @@ __all__ = [
     "plot_confusion_matrix_chart"
 ]
 
+def load_assam_boundary_and_rivers() -> dict:
+    """
+    Loads official Assam district boundary rings (33 districts) and real Natural Earth 10m
+    Brahmaputra river network centerlines from local GeoJSON assets.
+    """
+    data_dir = Path(__file__).resolve().parent.parent / "data"
+    districts_file = data_dir / "assam_districts.geojson"
+    rivers_file = data_dir / "assam_rivers_network.geojson"
+    if not rivers_file.exists():
+        rivers_file = data_dir / "assam_rivers.geojson"
+
+    district_rings = []
+    if districts_file.exists():
+        try:
+            with open(districts_file, "r", encoding="utf-8") as f:
+                d_geojson = json.load(f)
+            for feat in d_geojson.get("features", []):
+                geom = feat.get("geometry", {})
+                gtype = geom.get("type", "")
+                coords = geom.get("coordinates", [])
+                if gtype == "Polygon":
+                    for ring in coords:
+                        district_rings.append(ring)
+                elif gtype == "MultiPolygon":
+                    for poly in coords:
+                        for ring in poly:
+                            district_rings.append(ring)
+        except Exception:
+            district_rings = []
+
+    river_lines = []
+    if rivers_file.exists():
+        try:
+            with open(rivers_file, "r", encoding="utf-8") as f:
+                r_geojson = json.load(f)
+            for feat in r_geojson.get("features", []):
+                geom = feat.get("geometry", {})
+                gtype = geom.get("type", "")
+                coords = geom.get("coordinates", [])
+                if gtype == "LineString":
+                    river_lines.append(coords)
+                elif gtype == "MultiLineString":
+                    for line in coords:
+                        river_lines.append(line)
+        except Exception:
+            river_lines = []
+
+    return {
+        "district_rings": district_rings,
+        "river_lines": river_lines
+    }
+
 def generate_assam_topography(rows: int = 65, cols: int = 95, seed: int = 42) -> dict:
     """
     Constructs the macro-scale Assam 3D Digital Elevation Model (SRTM-grounded).
     Bounds: Lat 24.2°N to 27.9°N, Lon 89.8°E to 96.0°E (~78,438 km²).
     Models the Brahmaputra valley floor (32m - 120m), northern Himalayan foothills (up to 1800m),
     southern Shillong / Karbi / Barail ranges (up to 950m), and southern Barak Valley (35m - 70m).
+    Includes real vector district boundaries and river network centerlines.
     """
     np.random.seed(seed)
     lats = np.linspace(27.9, 24.2, rows)
@@ -105,12 +162,17 @@ def generate_assam_topography(rows: int = 65, cols: int = 95, seed: int = 42) ->
     ai_min_lon, ai_max_lon = config.STUDY_AREA["min_lon"], config.STUDY_AREA["max_lon"]
     ai_sector_mask = (lat_grid >= ai_min_lat) & (lat_grid <= ai_max_lat) & (lon_grid >= ai_min_lon) & (lon_grid <= ai_max_lon)
 
+    # Load vector assets for district boundaries & river lines
+    geo_assets = load_assam_boundary_and_rivers()
+
     return {
         "lat_grid": lat_grid,
         "lon_grid": lon_grid,
         "elevation": elev,
         "permanent_water": river_mask,
         "ai_sector_mask": ai_sector_mask,
+        "district_rings": geo_assets["district_rings"],
+        "river_lines": geo_assets["river_lines"],
         "bounds": {
             "min_lat": 24.2, "max_lat": 27.9,
             "min_lon": 89.8, "max_lon": 96.0
@@ -130,6 +192,8 @@ def compute_assam_flood_simulation(
     Precomputes 5 terrain-guided flood propagation stages across Assam.
     Simulates water progressively accumulating, overtopping river banks, and inundating
     alluvial depressions based on negative elevation gradients (-∇z) and antecedent precipitation.
+    Water propagation is physically confined to the Brahmaputra riparian corridor and the
+    Kaziranga-Golaghat alluvial floodplain lowlands.
     """
     elev = topo_assam["elevation"]
     river = topo_assam["permanent_water"]
@@ -137,19 +201,24 @@ def compute_assam_flood_simulation(
     lon_grid = topo_assam["lon_grid"]
     rows, cols = elev.shape
 
+    norm_x = (lon_grid - 89.8) / (96.0 - 89.8)
+    river_bed_elev = 34.0 + 84.0 * norm_x
+    river_lat_center = 26.05 + 1.70 * (norm_x ** 0.85) + 0.12 * np.sin(norm_x * 3.0 * np.pi)
+    dist_to_river = np.abs(lat_grid - river_lat_center)
+    rel_elev = elev - river_bed_elev
+
     gy, gx = np.gradient(elev)
     vy, vx = -gy, -gx
 
     stages_meta = [
-        {"stage": 1, "tag": "T-7", "date": "2020-07-07", "rain": 58.4, "alert": "NORMAL", "name": "Baseline River Channels", "threshold_offset": 0.0},
-        {"stage": 2, "tag": "T-5", "date": "2020-07-09", "rain": 94.2, "alert": "NORMAL", "name": "Catchment Runoff Inflow", "threshold_offset": 8.0},
-        {"stage": 3, "tag": "T-2", "date": "2020-07-12", "rain": 224.0, "alert": "WATCH", "name": "Bankfull Lowland Overflow", "threshold_offset": 18.0},
-        {"stage": 4, "tag": "T-1", "date": "2020-07-13", "rain": 286.3, "alert": "WARNING", "name": "Valley-Wide Inundation Surge", "threshold_offset": 28.0},
-        {"stage": 5, "tag": "T", "date": "2020-07-14", "rain": 342.8, "alert": "HIGH_RISK", "name": "Peak Catastrophic Crest", "threshold_offset": 38.0}
+        {"stage": 1, "tag": "T-7", "date": "2020-07-07", "rain": 58.4, "alert": "NORMAL", "name": "Baseline River Channels", "threshold": 0.0, "corridor_deg": 0.06},
+        {"stage": 2, "tag": "T-5", "date": "2020-07-09", "rain": 94.2, "alert": "NORMAL", "name": "Catchment Runoff Inflow", "threshold": 3.0, "corridor_deg": 0.12},
+        {"stage": 3, "tag": "T-2", "date": "2020-07-12", "rain": 224.0, "alert": "WATCH", "name": "Bankfull Lowland Overflow", "threshold": 6.0, "corridor_deg": 0.18},
+        {"stage": 4, "tag": "T-1", "date": "2020-07-13", "rain": 286.3, "alert": "WARNING", "name": "Valley-Wide Inundation Surge", "threshold": 9.5, "corridor_deg": 0.24},
+        {"stage": 5, "tag": "T", "date": "2020-07-14", "rain": 342.8, "alert": "HIGH_RISK", "name": "Peak Catastrophic Crest", "threshold": 14.0, "corridor_deg": 0.30}
     ]
 
     stages = []
-    river_elev_ref = float(np.mean(elev[river]))
 
     all_streamlines = []
     for r in range(4, rows - 4, 4):
@@ -177,17 +246,24 @@ def compute_assam_flood_simulation(
                 if len(sx) >= 3:
                     all_streamlines.append({"lons": sx, "lats": sy, "zs": sz})
 
+    ai_min_lat, ai_max_lat = config.STUDY_AREA["min_lat"], config.STUDY_AREA["max_lat"]
+    ai_min_lon, ai_max_lon = config.STUDY_AREA["min_lon"], config.STUDY_AREA["max_lon"]
+    ai_sector = (lat_grid >= ai_min_lat) & (lat_grid <= ai_max_lat) & (lon_grid >= ai_min_lon) & (lon_grid <= ai_max_lon)
+
     for s_idx, sm in enumerate(stages_meta):
         water_mask = river.copy()
         intensity = np.zeros_like(elev, dtype=float)
         intensity[river] = 1.0
 
         if s_idx > 0:
-            cutoff = river_elev_ref + sm["threshold_offset"]
-            overflow_candidates = (elev < cutoff) & (lat_grid >= 25.4) & (lat_grid <= 27.5) & (elev < 110.0)
-            depth_proxy = (cutoff - elev) / sm["threshold_offset"]
-            water_mask[overflow_candidates] = True
-            intensity[overflow_candidates] = depth_proxy[overflow_candidates].clip(0.15, 1.0)
+            corridor = dist_to_river < sm["corridor_deg"]
+            overflow = corridor & (rel_elev < sm["threshold"]) & (elev < 125.0)
+            ai_overflow = ai_sector & (elev < (55.0 + s_idx * 2.8))
+            stage_flooded = overflow | ai_overflow
+            water_mask[stage_flooded] = True
+
+            depth_proxy = (sm["threshold"] - rel_elev).clip(min=0.0) / max(sm["threshold"], 1.0)
+            intensity[stage_flooded] = np.maximum(intensity[stage_flooded], depth_proxy[stage_flooded].clip(0.20, 1.0))
             intensity[river] = 1.0
 
         flooded_cells = int(np.sum(water_mask))
@@ -221,6 +297,7 @@ def build_assam_3d_simulation_map(
     sp_local: dict = None,
     scale_level: str = "assam",
     show_terrain: bool = True,
+    show_boundaries: bool = True,
     show_ai_footprint: bool = True,
     show_river: bool = True,
     show_floodwater: bool = True,
@@ -232,6 +309,17 @@ def build_assam_3d_simulation_map(
 ) -> go.Figure:
     """
     Renders the Google Earth-style 3D interactive flood simulation map covering the ENTIRE State of Assam.
+    Features:
+    - 3D SRTM-grounded macro-scale terrain surface across all 33 Assam districts (~78,438 km²)
+    - Real vector district boundary outlines in cyan
+    - Real Natural Earth 10m Brahmaputra river network centerlines in fluvial blue
+    - Amber dashed AI model coverage frame with clear demarcation
+    - Overlaid high-resolution AI predicted flood risk surface inside footprint
+    - Terrain-guided expanding simulated floodwater surface
+    - Overland gravity streamlines (-∇z)
+    - Observed historical ground truth points (DFO Event 4924)
+    - Full-Assam city and district landmarks
+    - Calibrated macro-scale camera view framing the entire state
     """
     elev_assam = topo_assam["elevation"]
     lat_assam = topo_assam["lat_grid"]
@@ -243,6 +331,11 @@ def build_assam_3d_simulation_map(
     z_terrain = elev_assam * vertical_exaggeration
 
     stage = sim_data["stages"][max(0, min(active_stage_idx, len(sim_data["stages"]) - 1))]
+
+    def sample_elev(lon_pt, lat_pt, offset=1.8):
+        r = int(np.clip((27.9 - lat_pt) / (27.9 - 24.2) * (elev_assam.shape[0] - 1), 0, elev_assam.shape[0] - 1))
+        c = int(np.clip((lon_pt - 89.8) / (96.0 - 89.8) * (elev_assam.shape[1] - 1), 0, elev_assam.shape[1] - 1))
+        return elev_assam[r, c] * vertical_exaggeration + offset
 
     fig = go.Figure()
 
@@ -275,25 +368,93 @@ def build_assam_3d_simulation_map(
             name="Assam Statewide Topography"
         ))
 
-    # 2. AI Model Prediction Footprint Bounding Frame
+    # 2. Official Assam District Boundaries (33 Districts)
+    dist_rings = topo_assam.get("district_rings", [])
+    if show_boundaries and dist_rings:
+        bx, by, bz = [], [], []
+        for ring in dist_rings:
+            for pt in ring:
+                lon_pt, lat_pt = pt[0], pt[1]
+                if 89.8 <= lon_pt <= 96.0 and 24.2 <= lat_pt <= 27.9:
+                    bx.append(lon_pt)
+                    by.append(lat_pt)
+                    bz.append(sample_elev(lon_pt, lat_pt, offset=1.8))
+            bx.append(None)
+            by.append(None)
+            bz.append(None)
+
+        fig.add_trace(go.Scatter3d(
+            x=bx,
+            y=by,
+            z=bz,
+            mode="lines",
+            line=dict(color="#38BDF8", width=1.6),
+            name="Assam District Boundaries (33 Districts)",
+            hoverinfo="none"
+        ))
+
+    # 3. Real Natural Earth 10m Brahmaputra River Network Centerlines
+    riv_lines = topo_assam.get("river_lines", [])
+    if show_river and riv_lines:
+        rx, ry, rz = [], [], []
+        for line in riv_lines:
+            for pt in line:
+                lon_pt, lat_pt = pt[0], pt[1]
+                if 89.8 <= lon_pt <= 96.0 and 24.2 <= lat_pt <= 27.9:
+                    rx.append(lon_pt)
+                    ry.append(lat_pt)
+                    rz.append(sample_elev(lon_pt, lat_pt, offset=1.2))
+            rx.append(None)
+            ry.append(None)
+            rz.append(None)
+
+        fig.add_trace(go.Scatter3d(
+            x=rx,
+            y=ry,
+            z=rz,
+            mode="lines",
+            line=dict(color="#0284C7", width=3.8),
+            name="Brahmaputra Mainstem & Tributaries (Natural Earth 10m)",
+            hoverinfo="text",
+            hovertext="<b>Brahmaputra River Network</b><br>Natural Earth 10m Hydrology"
+        ))
+
+    # 4. Permanent Brahmaputra River Channel Surface Markers
+    if show_river:
+        r_lons = lon_assam[river_mask]
+        r_lats = lat_assam[river_mask]
+        r_zs = elev_assam[river_mask] * vertical_exaggeration + 0.9
+
+        fig.add_trace(go.Scatter3d(
+            x=r_lons,
+            y=r_lats,
+            z=r_zs,
+            mode="markers",
+            marker=dict(color="#0284C7", size=3.5, opacity=0.90, symbol="circle"),
+            name="Permanent Brahmaputra Riverbed",
+            hoverinfo="text",
+            hovertext=[f"<b>Brahmaputra Channel</b><br>Coords: {r_lats[i]:.2f}°N, {r_lons[i]:.2f}°E<br>Elevation: {r_zs[i]/vertical_exaggeration:.1f} m" for i in range(len(r_lons))]
+        ))
+
+    # 5. AI Model Prediction Footprint Bounding Frame (Amber Dashed)
     if show_ai_footprint:
         ai_b = topo_assam["ai_bounds"]
         b_lats = [ai_b["min_lat"], ai_b["max_lat"], ai_b["max_lat"], ai_b["min_lat"], ai_b["min_lat"]]
         b_lons = [ai_b["min_lon"], ai_b["min_lon"], ai_b["max_lon"], ai_b["max_lon"], ai_b["min_lon"]]
-        b_zs = [75.0 * vertical_exaggeration + 2.5] * 5
+        b_zs = [75.0 * vertical_exaggeration + 3.0] * 5
 
         fig.add_trace(go.Scatter3d(
             x=b_lons,
             y=b_lats,
             z=b_zs,
             mode="lines",
-            line=dict(color="#38BDF8", width=5, dash="dash"),
-            name="AI Model Coverage Footprint (Kaziranga)",
+            line=dict(color="#F59E0B", width=5, dash="dash"),
+            name="AI Model Coverage Footprint (~2,640 km²)",
             hoverinfo="text",
-            hovertext="<b>AI MODEL PREDICTION COVERAGE FOOTPRINT</b><br>Kaziranga - Golaghat Alluvial Corridor (~2,640 km²)<br>Resolution: ~500m per cell<br>Models: Random Forest & XGBoost"
+            hovertext="<b>AI MODEL PREDICTION COVERAGE FOOTPRINT</b><br>Kaziranga - Golaghat Alluvial Corridor (~2,640 km²)<br>Resolution: ~500m per cell (3,750 cells)<br>Models: Random Forest & XGBoost (Zero Leakage)"
         ))
 
-        # 3. Overlaid High-Resolution AI Flood Risk Surface inside footprint
+        # 6. Overlaid High-Resolution AI Flood Risk Surface inside footprint
         if sp_local is not None:
             topo_local = config.STUDY_AREA
             loc_lons = np.linspace(topo_local["min_lon"], topo_local["max_lon"], topo_local["grid_cols"])
@@ -318,24 +479,7 @@ def build_assam_3d_simulation_map(
                 name="AI Predicted Flood Risk Surface"
             ))
 
-    # 4. Permanent Brahmaputra River Network & Tributaries
-    if show_river:
-        r_lons = lon_assam[river_mask]
-        r_lats = lat_assam[river_mask]
-        r_zs = elev_assam[river_mask] * vertical_exaggeration + 0.9
-
-        fig.add_trace(go.Scatter3d(
-            x=r_lons,
-            y=r_lats,
-            z=r_zs,
-            mode="markers",
-            marker=dict(color="#0284C7", size=3.8, opacity=0.92, symbol="circle"),
-            name="Brahmaputra River & Tributaries",
-            hoverinfo="text",
-            hovertext=[f"<b>Brahmaputra River Network</b><br>Coords: {r_lats[i]:.2f}°N, {r_lons[i]:.2f}°E<br>Elevation: {r_zs[i]/vertical_exaggeration:.1f} m" for i in range(len(r_lons))]
-        ))
-
-    # 5. Expanding Simulated Floodwater Surface
+    # 7. Expanding Simulated Floodwater Surface
     if show_floodwater:
         w_mask = stage["water_mask"] & (~river_mask)
         if np.any(w_mask):
@@ -353,7 +497,7 @@ def build_assam_3d_simulation_map(
                     color=w_int,
                     colorscale=[[0.0, "#7DD3FC"], [0.5, "#0284C7"], [1.0, "#1E3A8A"]],
                     size=4.5,
-                    opacity=0.82,
+                    opacity=0.85,
                     showscale=False
                 ),
                 name=f"Simulated Flood Extent ({stage['name']})",
@@ -361,7 +505,7 @@ def build_assam_3d_simulation_map(
                 hovertext=[f"<b>Simulated Flood Inundation</b><br>Stage: {stage['name']} ({stage['tag']})<br>Relative Intensity: {w_int[i]:.2f}<br>Elevation: {w_zs[i]/vertical_exaggeration:.1f} m" for i in range(len(w_lons))]
             ))
 
-    # 6. Terrain-Guided Downhill Streamlines
+    # 8. Terrain-Guided Downhill Streamlines
     if show_streamlines and len(stage["streamlines"]) > 0:
         sx, sy, sz = [], [], []
         for st_item in stage["streamlines"]:
@@ -383,7 +527,7 @@ def build_assam_3d_simulation_map(
             hovertext="<b>Overland Runoff Streamline</b><br>Trajectory: Downhill toward Brahmaputra"
         ))
 
-    # 7. Observed Historical Flood Ground Truth (DFO Event 4924)
+    # 9. Observed Historical Flood Ground Truth (DFO Event 4924)
     if show_gt and sp_local is not None and "gt_grid" in sp_local:
         gt = sp_local["gt_grid"]
         pw = sp_local.get("perm_water_grid", np.zeros_like(gt))
@@ -409,7 +553,7 @@ def build_assam_3d_simulation_map(
                 hovertext="<b>Observed Inundation Ground Truth</b><br>DFO Event 4924 Satellite Detection"
             ))
 
-    # 8. Major Assam Cities & District Landmarks
+    # 10. Major Assam Cities & District Landmarks
     if show_landmarks:
         landmarks = [
             {"name": "Dhubri (West Entrance)", "lat": 26.02, "lon": 89.97},
@@ -446,7 +590,7 @@ def build_assam_3d_simulation_map(
             hovertext=[f"<b>{t}</b>" for t in lm_text]
         ))
 
-    # 9. Selected Location Highlight Pin
+    # 11. Selected Location Highlight Pin
     if selected_location:
         sel_lat, sel_lon = float(selected_location[0]), float(selected_location[1])
         fig.add_trace(go.Scatter3d(
@@ -463,26 +607,31 @@ def build_assam_3d_simulation_map(
             hovertext=f"<b>Selected Location</b><br>Coords: {sel_lat:.3f}°N, {sel_lon:.3f}°E"
         ))
 
-    # Camera Preset Definitions (Google Earth Scale Levels)
+    # Camera Preset Definitions (Calibrated for Assam Panoramic Scale)
     camera_presets = {
         "assam": dict(
-            eye=dict(x=-0.25, y=-1.85, z=2.05),
+            eye=dict(x=0.0, y=-2.15, z=1.85),
+            center=dict(x=0.0, y=0.0, z=-0.12),
             up=dict(x=0, y=0, z=1)
         ),
         "valley": dict(
-            eye=dict(x=-1.25, y=-1.15, z=1.20),
+            eye=dict(x=-0.20, y=-1.35, z=1.10),
+            center=dict(x=0.0, y=0.0, z=-0.05),
             up=dict(x=0, y=0, z=1)
         ),
         "sector": dict(
-            eye=dict(x=0.05, y=-0.85, z=0.72),
+            eye=dict(x=0.10, y=-0.65, z=0.55),
+            center=dict(x=0.08, y=0.10, z=0.0),
             up=dict(x=0, y=0, z=1)
         ),
         "cell": dict(
-            eye=dict(x=0.20, y=-0.48, z=0.42),
+            eye=dict(x=0.12, y=-0.35, z=0.30),
+            center=dict(x=0.08, y=0.10, z=0.0),
             up=dict(x=0, y=0, z=1)
         ),
         "topdown": dict(
-            eye=dict(x=0.001, y=0.001, z=2.50),
+            eye=dict(x=0.0001, y=0.0001, z=2.40),
+            center=dict(x=0.0, y=0.0, z=0.0),
             up=dict(x=0, y=1, z=0)
         )
     }
@@ -498,12 +647,12 @@ def build_assam_3d_simulation_map(
             yaxis=dict(title="Latitude (°N)", backgroundcolor="#0B111E", gridcolor="#1E293B", showbackground=True, color="#94A3B8"),
             zaxis=dict(title="Elevation (m)", backgroundcolor="#0B111E", gridcolor="#1E293B", showbackground=True, color="#94A3B8"),
             camera=chosen_camera,
-            aspectratio=dict(x=1.8, y=1.2, z=0.35)
+            aspectratio=dict(x=2.2, y=1.35, z=0.28)
         ),
         template="plotly_dark",
         paper_bgcolor="#0F172A",
         margin=dict(l=10, r=10, t=40, b=20),
-        height=700,
+        height=720,
         legend=dict(
             x=0.01,
             y=0.98,

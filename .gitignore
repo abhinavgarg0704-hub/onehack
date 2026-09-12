@@ -4,3 +4,4 @@ saarthi/
 .vscode/
 .idea/
 *.log
+.venv/
