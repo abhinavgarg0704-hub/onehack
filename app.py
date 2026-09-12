@@ -1,7 +1,6 @@
 """
-FloodSense AI - Satellite-Based Spatial Flood Risk Prediction & Early Warning System
-Lead Full-Stack ML, Geospatial & UI/UX Interface.
-Designed for high-impact hackathon presentation.
+FloodSense AI - Command-Center Streamlit Application
+Redesigned for executive hackathon presentation at 1080p+ resolution.
 """
 
 import streamlit as st
@@ -26,101 +25,240 @@ from src.validation import run_comparative_evaluation
 
 # Page Configuration
 st.set_page_config(
-    page_title="FloodSense AI | Satellite Flood Risk Early Warning",
+    page_title="FloodSense AI | Geospatial Flood Risk Command",
     page_icon="🌊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling (Geospatial Intelligence Cyber-Dark Theme)
+# Premium Command-Center CSS Styling
 st.markdown("""
 <style>
-    /* Global Styling */
+    /* Global Command-Center Theme */
     .stApp {
-        background-color: #0B0F19;
-        color: #E2E8F0;
-        font-family: 'Inter', -apple-system, sans-serif;
+        background-color: #080C15;
+        color: #F1F5F9;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
     
-    /* Top Banner Header */
-    .main-header {
-        background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
-        border: 1px solid #334155;
-        border-radius: 12px;
-        padding: 20px 24px;
-        margin-bottom: 20px;
+    /* Top Command Header */
+    .command-header {
+        background: #0F172A;
+        border: 1px solid #1E293B;
+        border-radius: 10px;
+        padding: 18px 24px;
+        margin-bottom: 16px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
     }
-    .main-title {
-        font-size: 2.1rem;
-        font-weight: 800;
-        color: #F8FAFC;
-        letter-spacing: -0.5px;
+    .brand-eyebrow {
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #38BDF8;
         margin-bottom: 4px;
     }
-    .sub-title {
-        font-size: 1.0rem;
-        color: #94A3B8;
-        font-weight: 400;
-    }
-    
-    /* KPI Metric Cards */
-    .kpi-container {
-        display: flex;
-        gap: 14px;
-        margin-bottom: 20px;
-    }
-    .kpi-card {
-        background: #1E293B;
-        border: 1px solid #334155;
-        border-radius: 10px;
-        padding: 16px 20px;
-        flex: 1;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-    }
-    .kpi-label {
-        font-size: 0.80rem;
-        color: #94A3B8;
-        text-transform: uppercase;
-        letter-spacing: 0.8px;
-        font-weight: 600;
-        margin-bottom: 6px;
-    }
-    .kpi-value {
+    .brand-title {
         font-size: 1.85rem;
         font-weight: 800;
         color: #F8FAFC;
-    }
-    .kpi-sub {
-        font-size: 0.78rem;
-        color: #64748B;
-        margin-top: 4px;
-    }
-    
-    /* Dynamic Alert Box */
-    .alert-box {
-        padding: 16px 20px;
-        border-radius: 10px;
-        margin-bottom: 20px;
-        font-weight: 500;
+        letter-spacing: -0.02em;
+        margin-bottom: 3px;
         display: flex;
         align-items: center;
-        gap: 16px;
+        gap: 10px;
+    }
+    .brand-subtitle {
+        font-size: 0.90rem;
+        color: #94A3B8;
+        font-weight: 400;
+    }
+    .badge-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 0.74rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        background: #1E293B;
+        color: #94A3B8;
+        border: 1px solid #334155;
+    }
+    .badge-chip-blue {
+        background: rgba(37, 99, 235, 0.15);
+        color: #60A5FA;
+        border: 1px solid rgba(37, 99, 235, 0.4);
     }
     
-    /* Tab Styling */
+    /* Operational Threat Assessment Card */
+    .threat-card {
+        background: #0F172A;
+        border: 1px solid #1E293B;
+        border-left-width: 5px;
+        border-radius: 8px;
+        padding: 16px 20px;
+        margin-bottom: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+    .threat-badge {
+        padding: 6px 14px;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #FFFFFF;
+        display: inline-block;
+    }
+    .threat-headline {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #F8FAFC;
+        margin-bottom: 2px;
+    }
+    .threat-desc {
+        font-size: 0.84rem;
+        color: #CBD5E1;
+    }
+    .threat-meta-label {
+        font-size: 0.68rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #64748B;
+    }
+    .threat-meta-value {
+        font-size: 0.88rem;
+        font-weight: 600;
+        color: #F1F5F9;
+    }
+    
+    /* KPI Metric Cards */
+    .kpi-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-bottom: 18px;
+    }
+    .kpi-box {
+        background: #0F172A;
+        border: 1px solid #1E293B;
+        border-radius: 8px;
+        padding: 14px 18px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    }
+    .kpi-title {
+        font-size: 0.70rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #94A3B8;
+        margin-bottom: 6px;
+    }
+    .kpi-number {
+        font-size: 1.80rem;
+        font-weight: 800;
+        color: #F8FAFC;
+        line-height: 1.1;
+    }
+    .kpi-subtext {
+        font-size: 0.74rem;
+        color: #64748B;
+        margin-top: 5px;
+    }
+    
+    /* Hero Map Frame */
+    .map-frame {
+        background: #0F172A;
+        border: 1px solid #1E293B;
+        border-radius: 10px;
+        padding: 14px;
+        margin-bottom: 22px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    }
+    .map-topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #1E293B;
+    }
+    .map-heading {
+        font-size: 0.88rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: #F8FAFC;
+    }
+    .legend-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        padding: 8px 12px;
+        background: #0B111E;
+        border-radius: 6px;
+        border: 1px solid #1E293B;
+        margin-bottom: 10px;
+        font-size: 0.76rem;
+        font-weight: 500;
+        color: #CBD5E1;
+    }
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .legend-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        display: inline-block;
+    }
+
+    /* Tabs Customization */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
+        gap: 6px;
+        border-bottom: 1px solid #1E293B;
+        margin-bottom: 14px;
     }
     .stTabs [data-baseweb="tab"] {
-        background-color: #1E293B;
-        border-radius: 8px 8px 0px 0px;
+        background: #0F172A;
+        border: 1px solid #1E293B;
+        border-bottom: none;
+        border-radius: 6px 6px 0 0;
         color: #94A3B8;
-        padding: 10px 18px;
+        padding: 9px 16px;
+        font-size: 0.82rem;
         font-weight: 600;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #2563EB !important;
-        color: #FFFFFF !important;
+        background: #1E293B !important;
+        border-color: #38BDF8 !important;
+        color: #F8FAFC !important;
+    }
+    
+    /* Tables & Dataframes */
+    [data-testid="stDataFrame"] {
+        border: 1px solid #1E293B;
+        border-radius: 8px;
+        background: #0F172A;
+    }
+    
+    /* Clean Footer */
+    .footer-bar {
+        text-align: center;
+        padding: 20px 0 10px 0;
+        color: #64748B;
+        font-size: 0.76rem;
+        letter-spacing: 0.04em;
+        border-top: 1px solid #1E293B;
+        margin-top: 24px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -129,7 +267,7 @@ st.markdown("""
 @st.cache_resource
 def load_models_and_metrics():
     if not config.RF_MODEL_PATH.exists() or not config.METRICS_JSON_PATH.exists():
-        with st.spinner("Initializing environment, training baseline models, and computing benchmark metrics..."):
+        with st.spinner("Initializing geospatial models and computing verification benchmarks..."):
             train_and_save_all_models()
             run_comparative_evaluation()
     
@@ -145,62 +283,66 @@ def load_models_and_metrics():
 
 rf_model, xgb_model, benchmark_metrics = load_models_and_metrics()
 
-# --- SIDEBAR CONTROLS ---
-st.sidebar.markdown("### 🛰️ **System Controls**")
+# --- SIDEBAR: MISSION CONTROL & SENSITIVITY CONTROLS ---
+st.sidebar.markdown("### 🎛️ **Mission Controls**")
+
+# 1. Historical Event Selection
 selected_event_key = st.sidebar.selectbox(
-    "Historical Event Selection",
+    "Disaster Event Archive",
     options=list(config.HISTORICAL_EVENTS.keys()),
-    format_func=lambda k: config.HISTORICAL_EVENTS[k]["name"]
+    format_func=lambda k: config.HISTORICAL_EVENTS[k]["name"],
+    help="Select the historical monsoonal flood event for retrospective analysis."
 )
 event_meta = config.HISTORICAL_EVENTS[selected_event_key]
 
-# Time Step Slider
+# 2. Timeline Step Progression
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ⏱️ **Temporal Lead Progression**")
 timeline_tags = [step["tag"] for step in event_meta["timeline"]]
 timeline_descriptions = {step["tag"]: f"{step['tag']} ({step['date']}): {step['desc']}" for step in event_meta["timeline"]}
 
 selected_tag = st.sidebar.select_slider(
-    "Select Lead Time Window",
+    "Antecedent Observation Window",
     options=timeline_tags,
     value="T",
     format_func=lambda t: f"{t} ({event_meta['timeline'][[s['tag'] for s in event_meta['timeline']].index(t)]['date']})"
 )
-st.sidebar.caption(f"ℹ️ {timeline_descriptions[selected_tag]}")
+st.sidebar.caption(f"📌 {timeline_descriptions[selected_tag]}")
 
-# Model Selector
+# 3. Model Engine Selector
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🧠 **Machine Learning Model**")
+st.sidebar.markdown("### 🧠 **Inference Engine**")
 model_choice = st.sidebar.radio(
-    "Select Active Predictor",
+    "Active ML Classifier",
     options=["Random Forest (Primary)", "XGBoost (Comparison)"],
-    index=0
+    index=0,
+    help="Toggle between primary Random Forest and comparative gradient boosted decision trees."
 )
 active_model = rf_model if "Random Forest" in model_choice else xgb_model
 
-# Layer Visibility Controls
+# 4. Layer Visibility Controls
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🗺️ **Map Display Layers**")
-show_risk_layer = st.sidebar.checkbox("Predicted Flood Risk Heatmap", value=True)
+st.sidebar.markdown("### 🗺️ **Raster Overlay Controls**")
+show_risk_layer = st.sidebar.checkbox("Predicted Flood Risk Surface", value=True)
 show_gt_layer = st.sidebar.checkbox("Observed Historical Inundation", value=True)
-show_water_layer = st.sidebar.checkbox("Permanent Brahmaputra River Channel", value=True)
+show_water_layer = st.sidebar.checkbox("Permanent Brahmaputra Channel", value=True)
 
 risk_threshold_slider = st.sidebar.slider(
-    "Display Filter: Minimum Risk Score",
+    "Risk Display Threshold (%)",
     min_value=0,
     max_value=80,
     value=20,
     step=5,
-    help="Hides cells with predicted risk lower than this threshold to reduce visual clutter."
+    help="Filters visual display to show only cells exceeding this risk threshold."
 )
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### ⚠️ **Operational Notice**")
-st.sidebar.info(
-    "**Historical Prediction Prototype**: Designed for analytical validation using historical satellite & hydro-meteorological archives. Not certified for live civil emergency warnings."
+st.sidebar.markdown("### ℹ️ **Prototype Boundary**")
+st.sidebar.caption(
+    "**Pre-Event Prediction Protocol**: Operates strictly using antecedent rainfall and pre-event optical composites. Not certified for live operational civil emergency dispatch."
 )
 
-# --- LOAD SPATIAL DATA FOR CURRENT TIMESTEP ---
+# --- INGEST CURRENT SPATIAL STEP ---
 df_step = load_data_for_tag(selected_tag)
 topo = generate_base_topography(config.STUDY_AREA["grid_rows"], config.STUDY_AREA["grid_cols"])
 spatial_preds = generate_spatial_prediction(df_step, active_model)
@@ -211,91 +353,117 @@ current_rainfall_1d = float(df_step["rainfall_1d"].iloc[0])
 mean_risk = spatial_preds["mean_risk"]
 high_risk_area = spatial_preds["high_risk_area_km2"]
 
-# Evaluate Alert Level
+# Evaluate Alert Tier
 alert = evaluate_flood_alert(mean_risk, high_risk_area, current_rainfall_7d)
 
-# --- MAIN DASHBOARD HEADER ---
+active_key = "Random Forest" if "Random Forest" in model_choice else "XGBoost"
+active_iou = benchmark_metrics[active_key]["iou"]
+active_f1 = benchmark_metrics[active_key]["f1"]
+
+# Alert Visual Mapping
+alert_colors = {
+    "NORMAL": {"bg": "#10B981", "border": "#059669"},
+    "WATCH": {"bg": "#F59E0B", "border": "#D97706"},
+    "WARNING": {"bg": "#F97316", "border": "#EA580C"},
+    "HIGH_RISK": {"bg": "#EF4444", "border": "#DC2626"}
+}
+current_alert_style = alert_colors[alert["alert_key"]]
+
+# --- 1. TOP COMMAND HEADER ---
 st.markdown(f"""
-<div class="main-header">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
+<div class="command-header">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
         <div>
-            <div class="main-title">🌊 FloodSense AI</div>
-            <div class="sub-title">Satellite-Based Spatial Flood Risk Prediction & Early Warning System</div>
+            <div class="brand-eyebrow">Satellite Geospatial Intelligence • Early Warning Prototype</div>
+            <div class="brand-title">🌊 FLOODSENSE AI</div>
+            <div class="brand-subtitle">Spatial Inundation Risk Prediction & Historical Disaster Early-Warning System</div>
         </div>
-        <div style="text-align: right;">
-            <span style="background: rgba(37, 99, 235, 0.2); border: 1px solid #2563EB; color: #60A5FA; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;">
-                ACTIVE HAZARD: FLOOD ONLY
-            </span>
-            <div style="color: #94A3B8; font-size: 0.78rem; margin-top: 4px;">Region: {config.STUDY_AREA['name']}</div>
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px;">
+            <div style="display: flex; gap: 6px;">
+                <span class="badge-chip badge-chip-blue">HAZARD: FLOOD ONLY</span>
+                <span class="badge-chip">REGION: ASSAM (BRAHMAPUTRA)</span>
+            </div>
+            <span class="badge-chip" style="font-size: 0.68rem; color: #64748B;">HISTORICAL PREDICTION EXPERIMENT</span>
         </div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# --- DYNAMIC ALERT BANNER ---
-alert_bg_color = {
-    "NORMAL": "rgba(39, 174, 96, 0.15)",
-    "WATCH": "rgba(241, 196, 15, 0.15)",
-    "WARNING": "rgba(230, 126, 34, 0.20)",
-    "HIGH_RISK": "rgba(231, 76, 60, 0.25)"
-}[alert["alert_key"]]
-
-alert_border_color = {
-    "NORMAL": "#27AE60",
-    "WATCH": "#F1C40F",
-    "WARNING": "#E67E22",
-    "HIGH_RISK": "#E74C3C"
-}[alert["alert_key"]]
-
+# --- 2. OPERATIONAL THREAT ASSESSMENT STRIP ---
 st.markdown(f"""
-<div class="alert-box" style="background: {alert_bg_color}; border: 1px solid {alert_border_color};">
-    <div style="font-size: 2.2rem;">{alert['icon']}</div>
-    <div style="flex: 1;">
-        <div style="font-size: 1.15rem; font-weight: 700; color: {alert['color']};">
-            EARLY WARNING TIER: {alert['label']}
+<div class="threat-card" style="border-left-color: {current_alert_style['bg']};">
+    <div style="display: flex; align-items: center; gap: 16px;">
+        <div class="threat-badge" style="background-color: {current_alert_style['bg']};">
+            {alert['label']}
         </div>
-        <div style="color: #E2E8F0; font-size: 0.88rem; margin-top: 2px;">
-            {alert['action']}
+        <div>
+            <div class="threat-headline">Threat Level: {alert['label']} Advisory in Effect</div>
+            <div class="threat-desc">{alert['action']}</div>
         </div>
     </div>
-    <div style="text-align: right; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 16px;">
-        <div style="font-size: 0.75rem; color: #94A3B8;">HORIZON</div>
-        <div style="font-size: 0.85rem; font-weight: 600; color: #F8FAFC;">24–72 Hours</div>
+    <div style="display: flex; gap: 24px; text-align: right; border-left: 1px solid #1E293B; padding-left: 20px;">
+        <div>
+            <div class="threat-meta-label">LEAD HORIZON</div>
+            <div class="threat-meta-value" style="color: #38BDF8;">24–72 Hours</div>
+        </div>
+        <div>
+            <div class="threat-meta-label">TIMESTEP</div>
+            <div class="threat-meta-value">{selected_tag} ({df_step['date'].iloc[0]})</div>
+        </div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# --- KPI CARDS ROW ---
+# --- 3. EXECUTIVE KPI METRIC STRIP ---
 st.markdown(f"""
-<div class="kpi-container">
-    <div class="kpi-card">
-        <div class="kpi-label">Mean Predicted Risk</div>
-        <div class="kpi-value" style="color: {alert['color']};">{mean_risk}%</div>
-        <div class="kpi-sub">Across 3,750 regional grid cells</div>
+<div class="kpi-row">
+    <div class="kpi-box">
+        <div class="kpi-title">Mean Floodplain Risk</div>
+        <div class="kpi-number" style="color: {current_alert_style['bg']};">{mean_risk}%</div>
+        <div class="kpi-subtext">Across flood-prone lowlands (&lt;75m elevation)</div>
     </div>
-    <div class="kpi-card">
-        <div class="kpi-label">Area at High Flood Risk</div>
-        <div class="kpi-value">{high_risk_area} <span style="font-size: 1.0rem; color: #94A3B8;">km²</span></div>
-        <div class="kpi-sub">Cells exceeding 60% probability threshold</div>
+    <div class="kpi-box">
+        <div class="kpi-title">Area at High Flood Risk</div>
+        <div class="kpi-number">{high_risk_area} <span style="font-size: 1.05rem; font-weight: 600; color: #94A3B8;">km²</span></div>
+        <div class="kpi-subtext">Cells exceeding 60% inundation probability</div>
     </div>
-    <div class="kpi-card">
-        <div class="kpi-label">7-Day Cumulative Rainfall</div>
-        <div class="kpi-value">{current_rainfall_7d} <span style="font-size: 1.0rem; color: #94A3B8;">mm</span></div>
-        <div class="kpi-sub">24h Instantaneous: {current_rainfall_1d} mm (CHIRPS)</div>
+    <div class="kpi-box">
+        <div class="kpi-title">7-Day Cumulative Rainfall</div>
+        <div class="kpi-number">{current_rainfall_7d} <span style="font-size: 1.05rem; font-weight: 600; color: #94A3B8;">mm</span></div>
+        <div class="kpi-subtext">24h Instantaneous: {current_rainfall_1d} mm (CHIRPS)</div>
     </div>
-    <div class="kpi-card">
-        <div class="kpi-label">Active ML Predictor</div>
-        <div class="kpi-value" style="font-size: 1.45rem;">{'Random Forest' if 'Random Forest' in model_choice else 'XGBoost'}</div>
-        <div class="kpi-sub">Validation IoU: {benchmark_metrics['Random Forest' if 'Random Forest' in model_choice else 'XGBoost']['iou']:.3f}</div>
+    <div class="kpi-box">
+        <div class="kpi-title">Active ML Classifier</div>
+        <div class="kpi-number" style="font-size: 1.45rem;">{'Random Forest' if 'Random Forest' in model_choice else 'XGBoost'}</div>
+        <div class="kpi-subtext">Holdout Spatial IoU: {active_iou:.3f} | F1: {active_f1:.3f}</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# --- INTERACTIVE MAP DISPLAY ---
-st.markdown("### 🗺️ **Spatial Flood Risk Intelligence Map**")
-st.caption("Interactive Leaflet/Folium surface representing multi-spectral probability raster. Toggle layers using the sidebar or top-right layer control.")
+# --- 4. LARGE HERO SPATIAL RISK MAP (CENTERPIECE) ---
+st.markdown("""
+<div class="map-frame">
+    <div class="map-topbar">
+        <div>
+            <span class="map-heading">🛰️ Spatial Flood Inundation Risk Surface</span>
+            <span style="font-size: 0.74rem; color: #64748B; margin-left: 8px;">Sentinel-2 Multi-Spectral + CHIRPS Rain + SRTM Topography</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+            <span class="badge-chip">Grid Resolution: ~500m</span>
+            <span class="badge-chip badge-chip-blue">3,750 Spatial Cells</span>
+        </div>
+    </div>
+    <div class="legend-bar">
+        <div class="legend-item"><span class="legend-dot" style="background: #10B981;"></span> Low Risk (0–25%)</div>
+        <div class="legend-item"><span class="legend-dot" style="background: #F59E0B;"></span> Moderate Risk (25–50%)</div>
+        <div class="legend-item"><span class="legend-dot" style="background: #F97316;"></span> High Risk (50–75%)</div>
+        <div class="legend-item"><span class="legend-dot" style="background: #EF4444;"></span> Very High Risk (75–100%)</div>
+        <div class="legend-item"><span class="legend-dot" style="background: #0284C7;"></span> Permanent Riverbed (JRC Water)</div>
+        <div class="legend-item"><span class="legend-dot" style="background: #06B6D4;"></span> Observed Historical Extent</div>
+    </div>
+""", unsafe_allow_html=True)
 
-# Generate and render Folium Map
+# Generate Folium map
 folium_map = build_interactive_map(
     lat_grid=topo["lat_grid"],
     lon_grid=topo["lon_grid"],
@@ -308,25 +476,26 @@ folium_map = build_interactive_map(
     risk_threshold=float(risk_threshold_slider)
 )
 
-# Render map in Streamlit
-st_folium(folium_map, width="100%", height=520, returned_objects=[])
+# Render map in Streamlit (Height 620px for 1080p presentation display)
+st_folium(folium_map, width="100%", height=620, returned_objects=[])
+st.markdown("</div>", unsafe_allow_html=True)
 
-# --- MULTI-TAB DETAILED ANALYTICS ---
+# --- 5. STRUCTURED ANALYTICAL TABS ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📈 Risk Evolution Timeline",
-    "🎯 Model Performance & Benchmark",
-    "🔬 Environmental Drivers & Explainability",
-    "🛰️ Datasets & Scientific Transparency",
-    "📋 Hackathon Presentation Slide Deck"
+    "📈 Risk Progression Timeline",
+    "🎯 Historical Event Validation",
+    "🔬 Model Explainability & Drivers",
+    "🛰️ Methodology & Data Pipeline",
+    "📋 Hackathon Pitch Deck (8 Slides)"
 ])
 
+# TAB 1: RISK TIMELINE
 with tab1:
-    st.markdown("#### **Historical Flood Risk Escalation Progression**")
-    st.write(
-        "Demonstrates how predicted risk evolved from pre-monsoon baseline conditions ($T-7$) up to the catastrophic peak inundation ($T$). Notice the dramatic leap in spatial risk as 7-day upstream rainfall escalates from 58 mm to 342 mm."
+    st.markdown("##### **Historical Lead Time Escalation Progression**")
+    st.caption(
+        "Evaluates how the spatial prediction engine responds as upstream precipitation accumulates leading up to peak overbank flooding. Notice the step-wise shift from baseline (T-7) to disaster crest (T)."
     )
-    
-    # Build timeline summary dataframe
+
     timeline_records = []
     for step in event_meta["timeline"]:
         tag = step["tag"]
@@ -349,29 +518,30 @@ with tab1:
         df_timeline.rename(columns={
             "time_tag": "Lead Tag",
             "date": "Observation Date",
-            "desc": "Environmental Condition",
-            "mean_risk": "Mean Risk (%)",
-            "high_risk_area_km2": "Inundated Risk Area (km²)",
-            "rainfall_7d": "7-Day Rain (mm)",
+            "desc": "Hydrological Event Context",
+            "mean_risk": "Mean Floodplain Risk (%)",
+            "high_risk_area_km2": "Inundated Area (km²)",
+            "rainfall_7d": "7-Day Cumulative Rain (mm)",
             "rainfall_1d": "24h Rain (mm)"
         }),
         use_container_width=True,
         hide_index=True
     )
 
+# TAB 2: HISTORICAL VALIDATION
 with tab2:
-    st.markdown("#### **Model Quantitative Validation & Benchmark**")
-    st.write(
-        "Evaluation strictly conducted on holdout peak event ($T$, July 14, 2020) against ground truth flood masks derived from Global Flood Database / Copernicus EMS. **Zero temporal leakage** occurred during training."
+    st.markdown("##### **Holdout Historical Disaster Validation**")
+    st.caption(
+        "Benchmarked strictly against verified Global Flood Database (DFO Event 4924) ground truth on an **unseen geographic sector** (Area B holdout, 1,100 test samples) during peak flood event T. **Zero temporal or spatial autocorrelation leakage.**"
     )
-    
-    col_m1, col_m2 = st.columns(2)
-    
-    with col_m1:
-        st.markdown("##### **Comparative Benchmark Table**")
+
+    col_v1, col_v2 = st.columns([1.2, 1.0])
+
+    with col_v1:
+        st.markdown("###### **Comparative Performance Matrix**")
         bench_df = pd.DataFrame([
             {
-                "Model": "Random Forest (Primary)",
+                "Model Architecture": "Random Forest (Primary)",
                 "Precision": benchmark_metrics["Random Forest"]["precision"],
                 "Recall": benchmark_metrics["Random Forest"]["recall"],
                 "F1-Score": benchmark_metrics["Random Forest"]["f1"],
@@ -379,7 +549,7 @@ with tab2:
                 "ROC-AUC": benchmark_metrics["Random Forest"]["roc_auc"]
             },
             {
-                "Model": "XGBoost (Comparison)",
+                "Model Architecture": "XGBoost (Comparison)",
                 "Precision": benchmark_metrics["XGBoost"]["precision"],
                 "Recall": benchmark_metrics["XGBoost"]["recall"],
                 "F1-Score": benchmark_metrics["XGBoost"]["f1"],
@@ -388,66 +558,73 @@ with tab2:
             }
         ])
         st.dataframe(bench_df.style.highlight_max(subset=["F1-Score", "IoU (Jaccard)", "ROC-AUC"], color="#1E3A8A"), use_container_width=True, hide_index=True)
-        
-        st.markdown("""
-        **Evaluation Highlights**:
-        - **Balanced Class Weighting**: Effectively handles spatial class imbalance (flood vs dry alluvial terrace).
-        - **IoU Metric**: 0.78+ spatial overlap achieved without post-hoc spatial smoothing.
-        - **High Recall (>0.88)**: Critical for disaster early warning to minimize dangerous false negatives.
-        """)
 
-    with col_m2:
-        active_key = "Random Forest" if "Random Forest" in model_choice else "XGBoost"
+        st.markdown("""
+        <div style="background: #0F172A; border: 1px solid #1E293B; border-radius: 8px; padding: 12px 16px; margin-top: 12px; font-size: 0.82rem; color: #94A3B8;">
+            <b style="color: #F8FAFC;">Methodological Notes:</b><br>
+            • <b>Zero Spatial Leakage:</b> Training restricted to Western/Central Kaziranga corridor (cols &le; 52); testing strictly on Eastern Bokakhat alluvial plains (cols &gt; 52).<br>
+            • <b>Zero Temporal Leakage:</b> All training samples drawn from antecedent windows (&le; T-2).<br>
+            • <b>Class Imbalance:</b> Balanced loss weights effectively mitigate severe land/water imbalance without synthetic oversampling.
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_v2:
         st.plotly_chart(
             plot_confusion_matrix_chart(benchmark_metrics[active_key]["confusion_matrix"]),
             use_container_width=True
         )
 
+# TAB 3: EXPLAINABILITY & DRIVERS
 with tab3:
-    st.markdown("#### **Environmental Feature Contributions (Explainability)**")
-    st.write(
-        "Explains what physical and remote sensing variables drive the model's spatial risk predictions. Antecedent precipitation and multi-spectral water indices dominate."
+    st.markdown("##### **Physical Explainability & Gini Driver Contributions**")
+    st.caption(
+        "Demonstrates which remote sensing bands, hydrological indices, and terrain parameters dominate spatial risk decisions."
     )
-    
-    col_f1, col_f2 = st.columns([1.4, 1.0])
-    
-    with col_f1:
+
+    col_e1, col_e2 = st.columns([1.3, 1.0])
+
+    with col_e1:
         df_importance = active_model.get_feature_importance()
         st.plotly_chart(plot_feature_importance_chart(df_importance), use_container_width=True)
-        
-    with col_f2:
-        st.markdown("##### **Domain Physical Interpretation**")
+
+    with col_e2:
         st.markdown("""
-        1. **7-Day Cumulative Rainfall (`rainfall_7d`)**: Acts as the primary basin-scale trigger. Soil saturation in the upstream Arunachal/Assam catchment forces rapid stage increases.
-        2. **MNDWI & NDWI (`mndwi`, `ndwi`)**: Spectral signatures capture surface ponding and river channel swelling before overbank inundation.
-        3. **Topographic Elevation (`elevation`)**: Floodwaters naturally gravitate into depressions below 65m elevation in the Kaziranga alluvial plain.
-        4. **Distance to Drainage (`dist_to_drainage`)**: Proximity to primary channels governs flood velocity and backwater inundation dynamics.
-        5. **Slope (`slope`)**: Flat terrain (<1.5°) impedes drainage and prolongs inundation duration.
-        """)
+        <div style="background: #0F172A; border: 1px solid #1E293B; border-radius: 8px; padding: 16px; font-size: 0.84rem;">
+            <div style="font-weight: 700; color: #38BDF8; margin-bottom: 8px; font-size: 0.90rem;">PHYSICAL INTERPRETATION</div>
+            <p style="margin-bottom: 8px;"><b style="color: #F8FAFC;">1. Near-Infrared (B8) & NDWI:</b> Strongest spectral discriminators. Open floodwaters completely absorb NIR energy, creating a sharp contrast with healthy grassland vegetation.</p>
+            <p style="margin-bottom: 8px;"><b style="color: #F8FAFC;">2. Shortwave-Infrared 2 (B12):</b> Captures heavy soil saturation and wetland mudflats preceding standing water emergence.</p>
+            <p style="margin-bottom: 8px;"><b style="color: #F8FAFC;">3. Topographic Elevation:</b> Floodwaters cannot flow uphill. Lowlands below 68m in the active floodplain are vulnerable to overtopping, while highlands remain completely dry.</p>
+            <p style="margin-bottom: 0px;"><b style="color: #F8FAFC;">4. Antecedent Rainfall (7-Day):</b> Surcharges the upstream Brahmaputra catchment, providing the multi-day temporal trigger for overbank breach.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
+# TAB 4: DATA PIPELINE & EO SPECIFICATIONS
 with tab4:
-    st.markdown("#### **Public Earth Observation Datasets & Specifications**")
-    st.write("Full disclosure of satellite sensors, revisit intervals, spatial resolutions, and scientific limitations.")
-    
+    st.markdown("##### **Public Earth Observation Datasets & Specifications**")
+    st.caption("Full disclosure of satellite sensors, revisit intervals, spatial resolutions, and limitations.")
+
     st.markdown("""
-    | Dataset | Sensor / Platform | Spatial Res | Revisit Time | Engineering Role | Limitations & Caveats |
+    | Dataset | Sensor / Mission | Spatial Res | Revisit Time | Engineered Features | Role in System |
     | :--- | :--- | :--- | :--- | :--- | :--- |
-    | **Sentinel-2 SR** | MSI (Sentinel-2A/B) | 10m / 20m | 5 days (constellation) | B2, B3, B4, B8, B11, B12, NDVI, NDWI, MNDWI | Cloud attenuation during active monsoon downpours |
-    | **CHIRPS Daily** | Satellite IR + Stations | 0.05° (~5.5 km) | Daily (24h) | 1d, 3d, 7d, 14d Antecedent Precipitation | Coarse spatial resolution relative to micro-topography |
-    | **SRTM DEM** | C-band InSAR Radar | 30m / 90m | Static Baseline | Elevation (m), Topographic Slope (deg) | Canopy penetration bias in dense subtropical forest |
-    | **JRC Surface Water** | Landsat Historical Series | 30m | Multi-decadal | Distinguishes permanent riverbed from new flood | Does not reflect real-time seasonal embankment alterations |
-    | **Global Flood DB** | DFO / MODIS / SAR | 250m / 30m | Event-based | Historical ground truth validation mask | Slight boundary uncertainty along braided river margins |
+    | **Sentinel-2 SR** | MSI (S2A/S2B) | 10m / 20m | 5 Days (Constellation) | B3, B4, B8, B11, B12, NDVI, NDWI, MNDWI | Spectral water detection, soil moisture attenuation |
+    | **CHIRPS Daily** | Satellite IR + Stations | 0.05° (~5.5 km) | Daily (24h) | 1d, 3d, 7d, 14d Antecedent Precipitation | Basin-wide precipitation triggers & soil saturation |
+    | **SRTM DEM** | C-band InSAR Radar | 30m / 90m | Static Baseline | Elevation (m), Slope (deg), Distance to River | Gravitational runoff & depression mapping |
+    | **JRC Surface Water** | Landsat Multi-Decadal | 30m | Decadal Series | Permanent Water Mask | Isolates permanent river channels from novel flood |
+    | **Global Flood DB** | DFO / MODIS / SAR | 30m / 250m | Event-based | Historical Ground Truth Mask (Event 4924) | Unseen holdout spatial validation labels |
     """)
 
-    st.markdown("##### **Scientific Caveats & Scope Disclosures**")
-    st.warning("""
-    1. **Not a Live Operational Warning System**: This software is an analytical research prototype for historical hazard modeling and decision support.
-    2. **Cloud Occlusion Mitigation**: In operational deployment, optical Sentinel-2 observations can be obscured by monsoonal cloud decks. Pre-event optical baselines synthesized with Sentinel-1 SAR (C-band synthetic aperture radar) provide all-weather capability.
-    3. **Hydraulic Structures**: Small culverts, localized embankments, and village roads may not be resolved at 500m grid cell resolution.
-    """)
+    st.markdown("""
+    <div style="background: #0F172A; border: 1px solid #1E293B; border-radius: 8px; padding: 14px 18px; margin-top: 14px; font-size: 0.82rem; color: #94A3B8;">
+        <b style="color: #F59E0B;">Scientific Caveats & Scope Disclosures:</b><br>
+        1. <b>Not an Operational Warning Dispatcher:</b> Research prototype evaluated on historical archives; not certified for live emergency dispatch.<br>
+        2. <b>Optical Cloud Occlusion:</b> Optical Sentinel-2 imagery can be attenuated by monsoonal cloud decks during torrential rain. Pre-event optical baselines synthesized with Sentinel-1 SAR are recommended for all-weather operational deployment.<br>
+        3. <b>Micro-Topography:</b> Village culverts, road bridges, and localized levees below 500m are not explicitly resolved in the 500m spatial grid.
+    </div>
+    """, unsafe_allow_html=True)
 
+# TAB 5: HACKATHON PITCH DECK
 with tab5:
-    st.markdown("#### **Hackathon Presentation Pitch Deck (8 Slides)**")
+    st.markdown("##### **Executive Hackathon Presentation Deck (8 Slides)**")
     st.markdown("""
     ---
     ### 🎯 **Slide 1: Problem Statement**
@@ -469,8 +646,9 @@ with tab5:
     ---
     ### ⚙️ **Slide 4: Machine Learning Architecture & Zero Leakage**
     - **Models**: Balanced Random Forest Classifier and Comparative XGBoost.
-    - **Temporal Integrity**: Zero future information leakage. Predictions at time $T$ utilize solely prior antecedent information ($T-14$, $T-7$, $T-3$, $T-1$) and pre-event composites.
-    - **Output**: Calibrated probability $P(\text{Flood})$ converted to intuitive 4-tier alert system (NORMAL, WATCH, WARNING, HIGH RISK).
+    - **Temporal Integrity**: Zero future information leakage. Predictions at time $T$ utilize solely prior antecedent information ($T-14$, $T-7$, $T-3$, $T-2$).
+    - **Spatial Integrity**: Evaluated on an unseen geographic sector (Area B holdout).
+    - **Output**: Calibrated probability $P(\\text{Flood})$ converted to intuitive 4-tier alert system (NORMAL, WATCH, WARNING, HIGH RISK).
 
     ---
     ### 📊 **Slide 5: Historical Validation on July 2020 Catastrophic Flood**
@@ -495,11 +673,9 @@ with tab5:
     - Deployment across all 34 flood-prone districts of Assam with automated ASDMA API webhooks.
     """)
 
-# Footer
-st.markdown("---")
-st.markdown(
-    "<div style='text-align: center; color: #64748B; font-size: 0.8rem;'>"
-    "FloodSense AI • Built for Hackathon Excellence • Assam Brahmaputra Floodplain Prediction System"
-    "</div>",
-    unsafe_allow_html=True
-)
+# --- 6. CLEAN COMMAND FOOTER ---
+st.markdown("""
+<div class="footer-bar">
+    FloodSense AI • Satellite-Based Spatial Flood Risk Prediction & Historical Early-Warning Prototype • Assam Brahmaputra Floodplain
+</div>
+""", unsafe_allow_html=True)
