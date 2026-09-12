@@ -570,22 +570,45 @@ else:  # Command Composite
 df_step_inspector = df_step.copy()
 df_step_inspector["risk_score"] = spatial_preds["risk_scores"]
 
-# Generate Folium map
-folium_map = build_interactive_map(
-    lat_grid=topo["lat_grid"],
-    lon_grid=topo["lon_grid"],
-    risk_grid=spatial_preds["risk_grid"],
-    gt_grid=spatial_preds["gt_grid"],
-    perm_water_grid=spatial_preds["perm_water_grid"],
-    df_step=df_step_inspector,
-    show_risk=eff_show_risk,
-    show_gt=eff_show_gt,
-    show_water=eff_show_water,
-    show_inspector=True,
-    risk_threshold=float(risk_threshold_slider),
-    risk_opacity=float(risk_opacity),
-    gt_opacity=float(gt_opacity)
-)
+# Generate Folium map with signature-safe parameter binding
+import inspect
+sig = inspect.signature(build_interactive_map)
+map_kwargs = {
+    "lat_grid": topo["lat_grid"],
+    "lon_grid": topo["lon_grid"],
+    "risk_grid": spatial_preds["risk_grid"],
+    "gt_grid": spatial_preds["gt_grid"],
+    "perm_water_grid": spatial_preds["perm_water_grid"],
+    "show_risk": eff_show_risk,
+    "show_gt": eff_show_gt,
+    "show_water": eff_show_water,
+    "risk_threshold": float(risk_threshold_slider)
+}
+
+if "df_step" in sig.parameters:
+    map_kwargs["df_step"] = df_step_inspector
+if "show_inspector" in sig.parameters:
+    map_kwargs["show_inspector"] = True
+if "risk_opacity" in sig.parameters:
+    map_kwargs["risk_opacity"] = float(risk_opacity)
+if "gt_opacity" in sig.parameters:
+    map_kwargs["gt_opacity"] = float(gt_opacity)
+
+try:
+    folium_map = build_interactive_map(**map_kwargs)
+except TypeError:
+    # Safe fallback if underlying function signature differs
+    folium_map = build_interactive_map(
+        lat_grid=topo["lat_grid"],
+        lon_grid=topo["lon_grid"],
+        risk_grid=spatial_preds["risk_grid"],
+        gt_grid=spatial_preds["gt_grid"],
+        perm_water_grid=spatial_preds["perm_water_grid"],
+        show_risk=eff_show_risk,
+        show_gt=eff_show_gt,
+        show_water=eff_show_water,
+        risk_threshold=float(risk_threshold_slider)
+    )
 
 # Render map in Streamlit (Height 640px for 1080p presentation display)
 st_folium(folium_map, width="100%", height=640, returned_objects=[])
