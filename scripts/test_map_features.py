@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Comprehensive Functional & Geospatial Feature Test Suite
-Simulates all user interactions, map controls, scale changes, layer toggles,
-and coordinate selection across the Assam study area.
+Simulates all user interactions, map controls, 2D layer toggles, simulation stages,
+and coordinate selection across the Golaghat & Nagaon study area.
 """
 
 import os
@@ -15,16 +15,13 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 import config
-from src.data_loader import load_data_for_tag, generate_base_topography
+from src.data_loader import load_data_for_tag, generate_base_topography, load_assam_boundary_and_rivers
 from src.model import FloodRiskModel
 from src.prediction import generate_spatial_prediction
 from src.visualization import (
-    generate_assam_topography,
     compute_district_flood_simulation,
-    build_district_3d_simulation_map,
-    compute_assam_flood_simulation,
-    build_assam_3d_simulation_map,
     compute_downhill_flow_paths,
+    build_interactive_map,
     plot_risk_timeline,
     plot_feature_importance_chart,
     plot_confusion_matrix_chart
@@ -32,7 +29,7 @@ from src.visualization import (
 
 def test_all_features():
     print("=" * 70)
-    print("RUNNING COMPREHENSIVE MAP & ANALYTICS FUNCTIONAL TESTS")
+    print("RUNNING COMPREHENSIVE 2D GIS MAP & SIMULATION FUNCTIONAL TESTS")
     print("=" * 70)
 
     # 1. Base data & AI Model
@@ -43,160 +40,147 @@ def test_all_features():
     rf.load()
     sp_local = generate_spatial_prediction(df_step, rf)
     assert sp_local["risk_grid"].shape == (50, 75), f"Unexpected shape {sp_local['risk_grid'].shape}"
-    print("    [PASS] AI Model loaded and predictions generated successfully")
+    print("    [PASS] AI Model loaded and predictions generated successfully (3,750 cells)")
 
-    # 2. Assam Topography & Boundaries
-    print("\n[2] Testing Assam macro-scale topography & vector GIS assets...")
-    topo_assam = generate_assam_topography(rows=65, cols=95)
-    assert topo_assam["elevation"].shape == (65, 95)
-    assert len(topo_assam["district_rings"]) > 0, "No district rings found"
-    assert len(topo_assam["river_lines"]) > 0, "No river lines found"
-    print(f"    [PASS] Assam DEM generated: {topo_assam['elevation'].shape}")
-    print(f"    [PASS] District boundary rings loaded: {len(topo_assam['district_rings'])}")
-    print(f"    [PASS] River network polylines loaded: {len(topo_assam['river_lines'])}")
-
-    # 3. 5-Stage Flood Simulation (Statewide & District-Scale)
-    print("\n[3] Testing 5-stage flood propagation simulation...")
-    sim_data = compute_assam_flood_simulation(topo_assam, sp_local=sp_local, rainfall_7d=342.8)
-    assert len(sim_data["stages"]) == 5, "Expected exactly 5 stages"
-    for i, s in enumerate(sim_data["stages"]):
-        print(f"    Statewide Stage {i+1} ({s['tag']}): {s['name']} | Water cells: {s['flooded_cells']} ({s['flooded_area_km2']:.1f} km^2) | Streamlines: {len(s['streamlines'])}")
-    assert sim_data["stages"][4]["flooded_cells"] > sim_data["stages"][0]["flooded_cells"], "Water extent did not expand"
-    print("    [PASS] Statewide 5 simulation stages computed with progressive inundation")
-
-    print("\n[3b] Testing District-Scale (Golaghat & Nagaon) 5-stage flood simulation with Advancing Front...")
+    # 2. Base Topography & Vector GIS Assets
+    print("\n[2] Testing district study area topography & vector GIS assets...")
     topo_local = generate_base_topography(config.STUDY_AREA["grid_rows"], config.STUDY_AREA["grid_cols"])
+    assert topo_local["elevation"].shape == (50, 75)
+    assert "permanent_water" in topo_local
+    geo_assets = load_assam_boundary_and_rivers()
+    assert len(geo_assets["district_rings"]) > 0, "No district rings found"
+    assert len(geo_assets["river_lines"]) > 0, "No river lines found"
+    print(f"    [PASS] District DEM verified: {topo_local['elevation'].shape}")
+    print(f"    [PASS] Vector district boundary rings loaded: {len(geo_assets['district_rings'])}")
+    print(f"    [PASS] Vector river lines loaded: {len(geo_assets['river_lines'])}")
+
+    # 3. 5-Stage District-Scale Flood Simulation with Advancing Front
+    print("\n[3] Testing District-Scale (Golaghat & Nagaon) 5-stage flood simulation with Advancing Front...")
     dist_sim = compute_district_flood_simulation(topo_local, spatial_preds=sp_local, rainfall_7d=342.8)
     assert len(dist_sim["stages"]) == 5, "Expected exactly 5 district stages"
     for i, s in enumerate(dist_sim["stages"]):
-        print(f"    District Stage {i} ({s['tag']}): {s['name']} | Flooded: {s['flooded_cells']} cells ({s['flooded_area_km2']:.1f} km²) | New Front: +{s['newly_flooded_cells']} cells")
+        print(f"    Stage {i} ({s['tag']}): {s['name']} | Flooded: {s['flooded_cells']} cells ({s['flooded_area_km2']:.1f} km²) | New Front: +{s['newly_flooded_cells']} cells")
     assert dist_sim["stages"][4]["flooded_cells"] > dist_sim["stages"][0]["flooded_cells"], "District water extent did not expand"
     assert dist_sim["stages"][1]["newly_flooded_cells"] > 0, "Stage 1 advancing front must have newly flooded cells"
     print("    [PASS] District simulation computed with active advancing flood front (+newly inundated cells)")
 
-    print("\n[3c] Testing District 3D Map construction with advancing front and presets...")
-    dist_fig = build_district_3d_simulation_map(
-        topo=topo_local,
+    # 4. 2D Interactive GIS Map Construction across Simulation Stages
+    print("\n[4] Testing 2D Folium Disaster Map across all 5 simulation stages...")
+    for stage_idx in range(5):
+        m = build_interactive_map(
+            lat_grid=topo_local["lat_grid"],
+            lon_grid=topo_local["lon_grid"],
+            risk_grid=sp_local["risk_grid"],
+            gt_grid=sp_local["gt_grid"],
+            perm_water_grid=sp_local["perm_water_grid"],
+            df_step=df_step,
+            sim_data=dist_sim,
+            active_stage_idx=stage_idx,
+            show_risk=True,
+            show_sim_floodwater=True,
+            show_flood_front=(stage_idx > 0),
+            show_water=True,
+            show_gt=True,
+            show_boundaries=True,
+            show_contours=True,
+            selected_location=(26.60, 93.35)
+        )
+        assert m is not None
+        html = m.get_root().render()
+        assert len(html) > 5000
+        print(f"    [PASS] Stage {stage_idx} Map rendered ({len(html)} bytes HTML)")
+
+    # 5. Layer Toggle Scenarios
+    print("\n[5] Testing layer toggle combinations...")
+    # Test only simulated water
+    m_water_only = build_interactive_map(
+        lat_grid=topo_local["lat_grid"],
+        lon_grid=topo_local["lon_grid"],
+        risk_grid=sp_local["risk_grid"],
+        gt_grid=sp_local["gt_grid"],
+        perm_water_grid=sp_local["perm_water_grid"],
+        df_step=df_step,
         sim_data=dist_sim,
-        active_stage_idx=3,
-        spatial_preds=sp_local,
-        scale_level="district",
-        show_floodwater=True,
-        show_boundaries=True
+        active_stage_idx=4,
+        show_risk=False,
+        show_sim_floodwater=True,
+        show_flood_front=True,
+        show_water=False,
+        show_gt=False,
+        show_boundaries=False
     )
-    assert len(dist_fig.data) >= 8, f"Expected >= 8 traces, got {len(dist_fig.data)}"
-    print(f"    [PASS] District 3D Map rendered with {len(dist_fig.data)} visual traces")
+    assert m_water_only is not None
+    print("    [PASS] Water-only layer combination rendered successfully")
 
-    # 4. Map Scale Presets & Camera Views
-    print("\n[4] Testing Google Earth-style camera scale presets...")
-    scale_presets = [
-        "🌏 Level 1: Statewide Assam (Default)",
-        "🏞️ Level 2: Brahmaputra Valley Corridor",
-        "📍 Level 3: AI Sector (Kaziranga-Golaghat)",
-        "🔬 Level 4: Local Threat Cell Focal Point",
-        "🗺️ 2D Plan View (Top-Down GIS Orthogonal)"
-    ]
-    for sp in scale_presets:
-        fig = build_assam_3d_simulation_map(
-            topo_assam=topo_assam,
-            sim_data=sim_data,
-            active_stage_idx=4,
-            sp_local=sp_local,
-            scale_level=sp
-        )
-        assert len(fig.data) >= 7, f"Preset {sp} missing layer traces"
-        safe_sp = sp.encode('ascii', errors='replace').decode('ascii')
-        print(f"    [PASS] Scale preset verified: {safe_sp} ({len(fig.data)} traces)")
+    # Test environmental layer (e.g. elevation surface)
+    m_env = build_interactive_map(
+        lat_grid=topo_local["lat_grid"],
+        lon_grid=topo_local["lon_grid"],
+        risk_grid=sp_local["risk_grid"],
+        gt_grid=sp_local["gt_grid"],
+        perm_water_grid=sp_local["perm_water_grid"],
+        df_step=df_step,
+        active_layer_var="elevation",
+        show_risk=True
+    )
+    assert m_env is not None
+    print("    [PASS] Environmental elevation surface layer rendered successfully")
 
-    # 5. Layer Toggles (Checking all checkboxes work independently)
-    print("\n[5] Testing individual map layer toggles...")
-    test_configs = [
-        ("show_terrain=False", dict(show_terrain=False)),
-        ("show_boundaries=False", dict(show_boundaries=False)),
-        ("show_ai_footprint=False", dict(show_ai_footprint=False)),
-        ("show_river=False", dict(show_river=False)),
-        ("show_floodwater=False", dict(show_floodwater=False)),
-        ("show_streamlines=False", dict(show_streamlines=False)),
-        ("show_gt=False", dict(show_gt=False)),
-        ("show_landmarks=False", dict(show_landmarks=False)),
-        ("vert_exag=1.5", dict(vertical_exaggeration=1.5)),
-    ]
-    for label, kwargs in test_configs:
-        fig = build_assam_3d_simulation_map(
-            topo_assam=topo_assam,
-            sim_data=sim_data,
-            active_stage_idx=3,
-            sp_local=sp_local,
-            **kwargs
-        )
-        assert fig is not None, f"Toggle test failed for {label}"
-        print(f"    [PASS] Layer toggle: {label} rendered without error")
+    # 6. Interactive Click Coordinate Resolution
+    print("\n[6] Testing interactive click coordinate resolution...")
+    click_lat, click_lon = 26.65, 93.35
+    df_step_inspector = df_step.copy()
+    df_step_inspector["risk_score"] = sp_local["risk_scores"]
+    dists = (df_step_inspector["lat"] - click_lat)**2 + (df_step_inspector["lon"] - click_lon)**2
+    closest_idx = dists.idxmin()
+    matched_cell = df_step_inspector.loc[closest_idx]
+    assert abs(matched_cell["lat"] - click_lat) < 0.05
+    assert abs(matched_cell["lon"] - click_lon) < 0.05
+    print(f"    [PASS] Click ({click_lat}, {click_lon}) resolved to Cell [{int(matched_cell['row'])}, {int(matched_cell['col'])}] ({matched_cell['lat']:.3f}°N, {matched_cell['lon']:.3f}°E)")
 
-    # 6. Target Location Selection Across Assam
-    print("\n[6] Testing location selection (Inside AI Sector vs Regional Context)...")
-    test_locations = [
-        ("Kaziranga (Inside AI Sector)", (26.60, 93.35)),
-        ("Guwahati (Regional West)", (26.18, 91.75)),
-        ("Dibrugarh (Regional East)", (27.48, 94.92)),
-        ("Dhubri (Border West)", (26.02, 89.98)),
-        ("Silchar (Barak Valley South)", (24.83, 92.80))
-    ]
-    for loc_name, coords in test_locations:
-        fig = build_assam_3d_simulation_map(
-            topo_assam=topo_assam,
-            sim_data=sim_data,
-            active_stage_idx=4,
-            sp_local=sp_local,
-            selected_location=coords
-        )
-        assert fig is not None
-        print(f"    [PASS] Location pin & coordinates: {loc_name} at {coords}")
-
-    # 7. Downhill Flow Paths
-    print("\n[7] Testing overland gravity downhill flow paths...")
-    topo_local = generate_base_topography(config.STUDY_AREA["grid_rows"], config.STUDY_AREA["grid_cols"])
+    # 7. Downhill Hydraulic Flow Path
+    print("\n[7] Testing downhill hydraulic flow path tracing...")
     flow = compute_downhill_flow_paths(
         elev_grid=topo_local["elevation"],
         risk_grid=sp_local["risk_grid"],
         perm_water_grid=sp_local["perm_water_grid"],
         lat_grid=topo_local["lat_grid"],
         lon_grid=topo_local["lon_grid"],
-        risk_threshold=25.0,
-        selected_cell=(25, 37)
+        risk_threshold=20.0,
+        selected_cell=(int(matched_cell["row"]), int(matched_cell["col"]))
     )
-    assert "selected_path" in flow, "Flow calculation missing selected_path"
-    print(f"    [PASS] Downhill flow computed: length={flow['selected_path']['dist_km']:.2f}km, drop={flow['selected_path']['elev_drop']:.1f}m")
+    assert "selected_path" in flow
+    sp_path = flow["selected_path"]
+    print(f"    [PASS] Hydraulic flow path traced: {sp_path['dist_km']:.2f} km, drop {sp_path['elev_drop']:.1f} m, destination: {sp_path['destination']}")
 
-    # 8. Charts & Timeline
-    print("\n[8] Testing analytics charts...")
-    timeline_df = pd.DataFrame([
-        {"time_tag": "T-7", "rainfall_7d": 58.4, "mean_risk": 14.2},
-        {"time_tag": "T-5", "rainfall_7d": 94.2, "mean_risk": 22.8},
-        {"time_tag": "T-3", "rainfall_7d": 168.5, "mean_risk": 38.6},
-        {"time_tag": "T-2", "rainfall_7d": 224.0, "mean_risk": 52.1},
-        {"time_tag": "T-1", "rainfall_7d": 286.3, "mean_risk": 68.4},
-        {"time_tag": "T", "rainfall_7d": 342.8, "mean_risk": 82.7}
-    ])
-    fig_time = plot_risk_timeline(timeline_df)
-    assert fig_time is not None
-    print("    [PASS] Risk escalation timeline chart verified")
+    # 8. Analytical Plotly Charts
+    print("\n[8] Testing analytical charts...")
+    timeline_records = []
+    for step in list(config.HISTORICAL_EVENTS.values())[0]["timeline"]:
+        t_df = load_data_for_tag(step["tag"])
+        timeline_records.append({
+            "time_tag": step["tag"],
+            "date": step["date"],
+            "mean_risk": 50.0,
+            "high_risk_area_km2": 850.0,
+            "rainfall_7d": float(t_df["rainfall_7d"].iloc[0])
+        })
+    df_tl = pd.DataFrame(timeline_records)
+    fig_tl = plot_risk_timeline(df_tl)
+    assert len(fig_tl.data) == 2, "Expected 2 traces (bars + line)"
+    print("    [PASS] plot_risk_timeline rendered successfully")
 
-    cm_data = {"tn": 2200, "fp": 150, "fn": 120, "tp": 1280}
-    fig_cm = plot_confusion_matrix_chart(cm_data)
-    assert fig_cm is not None
-    print("    [PASS] Confusion matrix chart verified")
+    fig_fi = plot_feature_importance_chart(rf.get_feature_importance())
+    assert len(fig_fi.data) == 1
+    print("    [PASS] plot_feature_importance_chart rendered successfully")
 
-    df_imp = pd.DataFrame([
-        {"feature": "ndwi", "importance": 0.32},
-        {"feature": "b8", "importance": 0.28},
-        {"feature": "rainfall_7d", "importance": 0.21}
-    ])
-    fig_fi = plot_feature_importance_chart(df_imp)
-    assert fig_fi is not None
-    print("    [PASS] Feature importance chart verified")
+    cm_dict = {"tp": 850, "fp": 60, "fn": 45, "tn": 2795}
+    fig_cm = plot_confusion_matrix_chart(cm_dict)
+    assert len(fig_cm.data) == 1
+    print("    [PASS] plot_confusion_matrix_chart rendered successfully")
 
     print("\n" + "=" * 70)
-    print("ALL FUNCTIONAL & INTERACTION TESTS PASSED (100% CLEAN)")
+    print("ALL 8 GEOSPATIAL & ANALYTICAL FEATURE SUITES PASSED SUCCESSFULLY!")
     print("=" * 70)
 
 if __name__ == "__main__":

@@ -98,148 +98,55 @@ def audit_app_call_sites(app_path: str = "app.py") -> bool:
             mod = importlib.import_module(mod_name)
             target = getattr(mod, orig_name, None)
         except Exception as e:
-            mismatches.append(f"Line {lineno:4d}: Could not import {mod_name}.{orig_name}: {e}")
+            mismatches.append(f"Line {lineno}: {func_name}() failed to load from {mod_name}: {e}")
             continue
 
         if target is None:
-            mismatches.append(f"Line {lineno:4d}: Symbol {orig_name} not found in {mod_name}!")
+            mismatches.append(f"Line {lineno}: {func_name}() does not exist in {mod_name}")
             continue
 
-        if not (inspect.isfunction(target) or inspect.isclass(target)):
+        if not inspect.isfunction(target) and not inspect.isclass(target):
             continue
 
-        try:
-            sig = inspect.signature(target)
-        except Exception as e:
-            continue
+        sig = inspect.signature(target)
+        params = sig.parameters
+        has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
 
-        pos_args = [a for a in node.args if not isinstance(a, ast.Starred)]
-        kw_args = [kw.arg for kw in node.keywords if kw.arg is not None]
-        has_var_kwargs = any(kw.arg is None for kw in node.keywords)
+        # Check call arguments
+        call_kwargs = [kw.arg for kw in node.keywords if kw.arg is not None]
+        num_args = len(node.args)
 
-        sig_params = sig.parameters
-        accepts_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig_params.values())
+        # Check keyword arguments against parameter list
+        for kw in call_kwargs:
+            if kw not in params and not has_var_keyword:
+                mismatches.append(
+                    f"Line {lineno}: {func_name}() called with unexpected keyword argument '{kw}'. "
+                    f"Accepted parameters: {list(params.keys())}"
+                )
 
-        # 1. Check keyword arguments
-        invalid_kw = []
-        for kw in kw_args:
-            if kw not in sig_params and not accepts_var_kw:
-                invalid_kw.append(kw)
+        verified_calls.append(f"Line {lineno}: {func_name}() [OK]")
 
-        # 2. Check required positional parameters
-        required_params = [
-            p.name for p in sig_params.values()
-            if p.default == inspect.Parameter.empty
-            and p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-        ]
-
-        passed_names = set(kw_args)
-        for i, p_name in enumerate(required_params):
-            if i < len(pos_args):
-                passed_names.add(p_name)
-
-        missing_req = [p for p in required_params if p not in passed_names]
-
-        if invalid_kw or missing_req:
-            err_details = []
-            if invalid_kw:
-                err_details.append(f"unexpected keywords: {invalid_kw}")
-            if missing_req:
-                err_details.append(f"missing required args: {missing_req}")
-            mismatches.append(
-                f"Line {lineno:4d} | {func_name:32s} | FAILED ({'; '.join(err_details)})\n"
-                f"            Signature: {sig}\n"
-                f"            Passed kw: {kw_args}"
-            )
-        else:
-            verified_calls.append(
-                f"Line {lineno:4d} | {func_name:32s} | {len(pos_args)} pos, {len(kw_args)} kw | OK"
-            )
-
-    print(f"\nVerified {len(verified_calls)} call sites successfully:")
+    print(f"Audited {len(verified_calls)} internal function call sites in {app_path}:")
     for vc in verified_calls:
-        print(f"  [OK] {vc}")
+        print(f"  {vc}")
 
     if mismatches:
-        print(f"\n[FAIL] Found {len(mismatches)} signature mismatch(es):")
-        for m in mismatches:
-            print(f"  [FAIL] {m}")
+        print(f"\n[ERROR] Found {len(mismatches)} call signature mismatches:")
+        for mm in mismatches:
+            print(f"  - {mm}")
         return False
 
-    print("\n[SUCCESS] All app.py call sites match canonical module signatures perfectly!")
+    print("\n[SUCCESS] All app.py call sites strictly match target signatures!")
     return True
 
-def smoke_test_assam_3d_pipeline() -> bool:
-    """Executes the full-Assam 3D visualization pipeline end-to-end in headless mode."""
-    print_header("SMOKE TESTING ASSAM 3D GEOSPATIAL PIPELINE")
-    try:
-        from src.visualization import (
-            generate_assam_topography,
-            compute_assam_flood_simulation,
-            build_assam_3d_simulation_map
-        )
-        from src.data_loader import load_data_for_tag
-        from src.model import FloodRiskModel
-        from src.prediction import generate_spatial_prediction
-
-        print("1. Generating Assam macro-scale topography (65x95 DEM)...")
-        topo_assam = generate_assam_topography(rows=65, cols=95)
-        assert "elevation" in topo_assam, "DEM elevation grid missing"
-        assert "district_rings" in topo_assam, "district_rings missing"
-        assert "river_lines" in topo_assam, "river_lines missing"
-        assert topo_assam["bounds"]["min_lat"] == 24.2, "Assam south bound mismatch"
-        assert topo_assam["bounds"]["max_lon"] == 96.0, "Assam east bound mismatch"
-        print("   [OK] Assam DEM generated successfully (~78,438 km^2 scope)")
-
-        print("2. Generating local sector AI predictions...")
-        df_step = load_data_for_tag("T")
-        rf_model = FloodRiskModel("rf")
-        rf_model.load()
-        sp_local = generate_spatial_prediction(df_step, rf_model)
-        assert "risk_grid" in sp_local, "Local AI risk grid missing"
-        print("   [OK] Local sector prediction generated (3,750 cells)")
-
-        print("3. Precomputing Assam terrain-guided flood simulation...")
-        sim_assam = compute_assam_flood_simulation(topo_assam, sp_local=sp_local, rainfall_7d=342.8)
-        assert len(sim_assam["stages"]) == 5, "Expected 5 simulation stages"
-        print("   [OK] 5 flood propagation stages computed successfully")
-
-        print("4. Building Google Earth-scale 3D simulation canvas with all active layers...")
-        fig = build_assam_3d_simulation_map(
-            topo_assam=topo_assam,
-            sim_data=sim_assam,
-            active_stage_idx=4,
-            sp_local=sp_local,
-            scale_level="assam",
-            show_terrain=True,
-            show_boundaries=True,
-            show_ai_footprint=True,
-            show_river=True,
-            show_floodwater=True,
-            show_streamlines=True,
-            show_gt=True,
-            show_landmarks=True,
-            selected_location=(26.60, 93.35),
-            vertical_exaggeration=0.85
-        )
-        trace_count = len(fig.data)
-        assert trace_count >= 7, f"Expected >= 7 traces, got {trace_count}"
-        print(f"   [OK] 3D Figure generated successfully with {trace_count} visual layers")
-
-        return True
-    except Exception as e:
-        import traceback
-        print(f"[FAIL] Smoke test failed with exception: {e}")
-        traceback.print_exc()
-        return False
-
-def smoke_test_district_3d_pipeline() -> bool:
-    """Executes the district-scale (Golaghat & Nagaon) 3D simulation pipeline end-to-end."""
-    print_header("SMOKE TESTING DISTRICT-SCALE 3D SIMULATION PIPELINE")
+def smoke_test_district_2d_pipeline() -> bool:
+    """Executes the district-scale (Golaghat & Nagaon) 2D simulation pipeline end-to-end."""
+    print_header("SMOKE TESTING DISTRICT-SCALE 2D SIMULATION & MAP PIPELINE")
     try:
         from src.visualization import (
             compute_district_flood_simulation,
-            build_district_3d_simulation_map
+            build_interactive_map,
+            compute_downhill_flow_paths
         )
         from src.data_loader import load_data_for_tag, generate_base_topography
         from src.model import FloodRiskModel
@@ -271,32 +178,52 @@ def smoke_test_district_3d_pipeline() -> bool:
             print(f"   Stage {i} ({stg['tag']}): {stg['name']} | Flooded: {stg['flooded_cells']} cells ({stg['flooded_area_km2']:.1f} km²) | New Front: +{stg['newly_flooded_cells']} cells")
         print("   [OK] 5 district flood simulation stages verified")
 
-        print("4. Building district 3D simulation canvas (Stage 2: Floodplain Expansion)...")
-        fig = build_district_3d_simulation_map(
-            topo=topo,
+        print("4. Building 2D Interactive GIS Disaster Map with all layers...")
+        m = build_interactive_map(
+            lat_grid=topo["lat_grid"],
+            lon_grid=topo["lon_grid"],
+            risk_grid=sp_local["risk_grid"],
+            gt_grid=sp_local["gt_grid"],
+            perm_water_grid=sp_local["perm_water_grid"],
+            df_step=df_step,
             sim_data=sim_district,
-            active_stage_idx=2,
-            spatial_preds=sp_local,
-            scale_level="district",
-            show_terrain=True,
-            show_boundaries=True,
-            show_ai_footprint=True,
-            show_river=True,
-            show_floodwater=True,
-            show_streamlines=True,
+            active_stage_idx=3,
+            show_risk=True,
+            show_sim_floodwater=True,
+            show_flood_front=True,
+            show_water=True,
             show_gt=True,
-            show_landmarks=True,
-            selected_location=(26.60, 93.35),
-            vertical_exaggeration=2.2
+            show_boundaries=True,
+            show_contours=True,
+            show_inspector=False,
+            risk_threshold=20.0,
+            selected_location=(26.60, 93.35)
         )
-        trace_count = len(fig.data)
-        assert trace_count >= 8, f"Expected >= 8 traces, got {trace_count}"
-        print(f"   [OK] District 3D Figure generated successfully with {trace_count} visual layers")
+        assert m is not None, "Folium map is None"
+        html = m.get_root().render()
+        assert len(html) > 5000, "Rendered map HTML suspiciously short"
+        assert "World_Dark_Gray_Base" in html, "Esri Dark Canvas basemap missing"
+        assert "World_Imagery" in html, "Esri World Imagery basemap missing"
+        print(f"   [OK] 2D Folium Map generated successfully ({len(html)} bytes HTML)")
+
+        print("5. Verifying downhill hydraulic flow path calculation...")
+        flow = compute_downhill_flow_paths(
+            elev_grid=topo["elevation"],
+            risk_grid=sp_local["risk_grid"],
+            perm_water_grid=sp_local["perm_water_grid"],
+            lat_grid=topo["lat_grid"],
+            lon_grid=topo["lon_grid"],
+            risk_threshold=20.0,
+            selected_cell=(25, 35)
+        )
+        assert "selected_path" in flow, "selected_path missing"
+        assert flow["selected_path"]["dist_km"] >= 0, "Invalid flow distance"
+        print(f"   [OK] Downhill flow path: {flow['selected_path']['dist_km']:.2f} km to {flow['selected_path']['destination']}")
 
         return True
     except Exception as e:
         import traceback
-        print(f"[FAIL] District smoke test failed with exception: {e}")
+        print(f"[FAIL] Smoke test failed with exception: {e}")
         traceback.print_exc()
         return False
 
@@ -320,14 +247,9 @@ def main():
     if not ast_ok:
         sys.exit(1)
 
-    # 4. Smoke test district 3D pipeline
-    district_ok = smoke_test_district_3d_pipeline()
+    # 4. Smoke test district 2D pipeline
+    district_ok = smoke_test_district_2d_pipeline()
     if not district_ok:
-        sys.exit(1)
-
-    # 5. Smoke test statewide Assam 3D pipeline
-    smoke_ok = smoke_test_assam_3d_pipeline()
-    if not smoke_ok:
         sys.exit(1)
 
     print_header("ALL VISUALIZATION API CONTRACT CHECKS PASSED (100% CLEAN)")

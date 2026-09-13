@@ -19,35 +19,19 @@ from src.alerts import evaluate_flood_alert
 # Self-healing import guard: long-running Streamlit processes can retain stale module caches in sys.modules.
 # Evict stale module from memory to ensure newly added simulation functions are loaded from disk.
 import sys
-if "src.visualization" in sys.modules and not hasattr(sys.modules["src.visualization"], "compute_district_flood_simulation"):
+if "src.visualization" in sys.modules and not hasattr(sys.modules["src.visualization"], "build_interactive_map"):
     sys.modules.pop("src.visualization", None)
 
-try:
-    from src.visualization import (
-        generate_assam_topography,
-        compute_district_flood_simulation,
-        build_district_3d_simulation_map,
-        compute_assam_flood_simulation,
-        build_assam_3d_simulation_map,
-        compute_downhill_flow_paths,
-        plot_risk_timeline,
-        plot_feature_importance_chart,
-        plot_confusion_matrix_chart
-    )
-except ImportError:
-    sys.modules.pop("src.visualization", None)
-    from src.visualization import (
-        generate_assam_topography,
-        compute_district_flood_simulation,
-        build_district_3d_simulation_map,
-        compute_assam_flood_simulation,
-        build_assam_3d_simulation_map,
-        compute_downhill_flow_paths,
-        plot_risk_timeline,
-        plot_feature_importance_chart,
-        plot_confusion_matrix_chart
-    )
+from src.visualization import (
+    compute_district_flood_simulation,
+    compute_downhill_flow_paths,
+    build_interactive_map,
+    plot_risk_timeline,
+    plot_feature_importance_chart,
+    plot_confusion_matrix_chart
+)
 from src.validation import run_comparative_evaluation
+from streamlit_folium import st_folium
 
 # Page Configuration
 st.set_page_config(
@@ -524,11 +508,8 @@ df_step = load_data_for_tag(selected_tag)
 topo = generate_base_topography(config.STUDY_AREA["grid_rows"], config.STUDY_AREA["grid_cols"])
 spatial_preds = generate_spatial_prediction(df_step, active_model)
 
-@st.cache_data
-def get_cached_assam_topo():
-    return generate_assam_topography(rows=65, cols=95)
-
-topo_assam = get_cached_assam_topo()
+# District study area base topography (~2,640 km², 3,750 cells)
+topo_assam = topo
 
 # Extract Step Meteorological & Risk Metrics
 current_rainfall_7d = float(df_step["rainfall_7d"].iloc[0])
@@ -660,11 +641,11 @@ if "sim_stage_idx" not in st.session_state:
 if "is_playing" not in st.session_state:
     st.session_state.is_playing = False
 
-if "scale_choice" not in st.session_state:
-    st.session_state.scale_choice = "📍 Level 1: District Study Area (Golaghat - Nagaon, Default)"
-
 if "sim_speed" not in st.session_state:
     st.session_state.sim_speed = 1.0
+
+if "last_clicked_coords" not in st.session_state:
+    st.session_state.last_clicked_coords = None
 
 curr_stage_idx = max(0, min(st.session_state.sim_stage_idx, len(sim_stages) - 1))
 active_stage_dict = sim_stages[curr_stage_idx]
@@ -687,35 +668,8 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Row 1: Camera Scale Presets, Simulation Playback Controls, and Playback Speed
-c_cam, c_play, c_spd = st.columns([1.5, 1.8, 1.1])
-
-with c_cam:
-    scale_options = [
-        "📍 Level 1: District Study Area (Golaghat - Nagaon, Default)",
-        "🌊 Level 2: Floodplain Inundation Basin (Close-up)",
-        "🔬 Level 3: Local Threat Hotspot (High-Risk Epicenter)",
-        "🗺️ Level 4: 2D Plan View (Orthogonal GIS)",
-        "🌏 Level 5: Regional Assam Context (Zoomed Out)"
-    ]
-    scale_preset_map = {
-        "📍 Level 1: District Study Area (Golaghat - Nagaon, Default)": "district",
-        "🌊 Level 2: Floodplain Inundation Basin (Close-up)": "basin",
-        "🔬 Level 3: Local Threat Hotspot (High-Risk Epicenter)": "hotspot",
-        "🗺️ Level 4: 2D Plan View (Orthogonal GIS)": "topdown",
-        "🌏 Level 5: Regional Assam Context (Zoomed Out)": "regional"
-    }
-    if st.session_state.scale_choice not in scale_options:
-        st.session_state.scale_choice = scale_options[0]
-    cur_idx = scale_options.index(st.session_state.scale_choice)
-    selected_scale = st.selectbox(
-        "🎥 Camera Scale Level",
-        options=scale_options,
-        index=cur_idx,
-        help="Switch zoom scale: High-resolution district study area, floodplain basin, local threat hotspot, 2D top-down GIS, or regional Assam overview."
-    )
-    st.session_state.scale_choice = selected_scale
-    active_camera_preset = scale_preset_map[selected_scale]
+# Row 1: Simulation Playback Controls, Playback Speed, and Focal Target Location
+c_play, c_spd, c_loc = st.columns([1.8, 1.0, 1.6])
 
 with c_play:
     st.markdown("<div style='font-size: 0.70rem; font-weight: 700; text-transform: uppercase; color: #94A3B8; margin-bottom: 4px;'>🌊 Flood Simulation Playback</div>", unsafe_allow_html=True)
@@ -734,6 +688,7 @@ with c_play:
         if st.button("↺ Reset", key="btn_reset_sim", help="Reset simulation to Stage 0 (Baseline riverbed)"):
             st.session_state.sim_stage_idx = 0
             st.session_state.is_playing = False
+            st.session_state.last_clicked_coords = None
             st.rerun()
     with b4:
         if st.button("⏭ Next", key="btn_step_sim", help="Step forward to next simulation stage"):
@@ -750,6 +705,25 @@ with c_spd:
     )
     speed_multiplier = 0.5 if "0.5x" in speed_choice else (2.0 if "2.0x" in speed_choice else 1.0)
     st.session_state.sim_speed = speed_multiplier
+
+with c_loc:
+    location_options = [
+        "Kaziranga Central Floodplain (AI Sector - High Inundation Risk)",
+        "Tezpur Alluvial Lowlands (AI Sector - River Confluence)",
+        "Silghat Braided Convergence (AI Sector - Gorge Transition)",
+        "North Bank Overbank Sump (AI Sector - Agricultural Lowlands)",
+        "Majuli Island (Upper Reach - Fluvial Island Context)",
+        "Guwahati Gateway Chokepoint (Kamrup Alluvial Defile Context)",
+        "Dibrugarh Upper Reach (East Assam Context)",
+        "Dhubri Western Outfall (West Assam Context)",
+        "Peak Threat Cell (Auto-Detected Highest AI Risk Cell)"
+    ]
+    target_focal_choice = st.selectbox(
+        "🎯 Focal Target Location",
+        options=location_options,
+        index=0,
+        help="Select any focal point across Assam or click anywhere directly on the 2D map."
+    )
 
 # Multi-Stage Simulation Propagation Slider
 sim_slider = st.slider(
@@ -775,51 +749,18 @@ stage_labels = [
 ]
 st.caption(f"📌 **Current Simulation Stage:** {stage_labels[curr_stage_idx]}")
 
-# Row 2: Hydraulic & Terrain Layers, Target Location, and Vertical Exaggeration Slider
-c_layers, c_loc, c_exag = st.columns([1.9, 1.6, 1.0])
-
-with c_layers:
-    st.markdown("<div style='font-size: 0.70rem; font-weight: 700; text-transform: uppercase; color: #94A3B8; margin-bottom: 4px;'>Hydraulic & Terrain Layers</div>", unsafe_allow_html=True)
-    lt1, lt2, lt3 = st.columns(3)
-    with lt1:
-        show_terrain_dem = st.checkbox("District 3D DEM", value=True, help="Display 3D SRTM Digital Elevation Model of Golaghat & Nagaon study area")
-        show_district_boundaries = st.checkbox("District Boundaries", value=True, help="Display official Golaghat & Nagaon district boundary lines")
-    with lt2:
-        show_river_network = st.checkbox("Brahmaputra River", value=True, help="Display permanent Brahmaputra braided channel")
-        show_sim_floodwater = st.checkbox("Simulated Floods", value=True, help="Display dynamic expanding simulated water surface & advancing front")
-    with lt3:
-        show_ai_footprint_layer = st.checkbox("AI Risk Hotspots", value=True, help="Display high-risk core prediction cells")
-        show_observed_dfo_gt = st.checkbox("DFO Ground Truth", value=True, help="Display observed satellite flood extent from DFO Event 4924")
-    show_gravity_streamlines = True
-
-with c_loc:
-    location_options = [
-        "Kaziranga Central Floodplain (AI Sector - High Inundation Risk)",
-        "Tezpur Alluvial Lowlands (AI Sector - River Confluence)",
-        "Silghat Braided Convergence (AI Sector - Gorge Transition)",
-        "North Bank Overbank Sump (AI Sector - Agricultural Lowlands)",
-        "Majuli Island (Upper Assam - Fluvial Island & Riverine Lowlands)",
-        "Guwahati Gateway Chokepoint (Kamrup Alluvial Defile & Port)",
-        "Dibrugarh Upper Reach (East Assam - Himalayan Inflow)",
-        "Dhubri Western Outfall (West Assam - Bangladesh Border)",
-        "Peak Threat Cell (Auto-Detected Highest AI Risk Cell)"
-    ]
-    target_focal_choice = st.selectbox(
-        "🎯 Focal Target Location",
-        options=location_options,
-        index=0,
-        help="Select any focal point across Assam to inspect in 3D terrain, assess hydraulic drainage, or evaluate localized flood risk."
-    )
-
-with c_exag:
-    vert_exag = st.slider(
-        "3D Relief Scale",
-        min_value=0.5,
-        max_value=2.0,
-        value=0.85,
-        step=0.15,
-        help="Adjust 3D terrain vertical exaggeration for optimal visual relief."
-    )
+# Row 2: 2D GIS Operational Layers Checkboxes
+st.markdown("<div style='font-size: 0.70rem; font-weight: 700; text-transform: uppercase; color: #94A3B8; margin-top: 4px; margin-bottom: 4px;'>🗺️ 2D GIS Operational Layers</div>", unsafe_allow_html=True)
+lt1, lt2, lt3 = st.columns(3)
+with lt1:
+    show_risk_surface = st.checkbox("AI Flood Risk Surface", value=True, help="Display transparent continuous 0–100% risk heatmap")
+    show_sim_floodwater = st.checkbox("Simulated Floodwater", value=True, help="Display dynamic expanding simulated water surface")
+with lt2:
+    show_flood_front = st.checkbox("⚡ Advancing Flood Front", value=True, help="Display glowing electric cyan front of newly inundated cells")
+    show_permanent_river = st.checkbox("Permanent Brahmaputra Channel", value=True, help="Display permanent riverbed mask (JRC Surface Water)")
+with lt3:
+    show_district_boundaries = st.checkbox("District & River Network", value=True, help="Display official district boundaries and river centerlines")
+    show_observed_dfo_gt = st.checkbox("DFO Ground Truth Extent", value=True, help="Display observed satellite flood extent from DFO Event 4924")
 
 # Attach risk scores to df_step for interactive cell inspection
 df_step_inspector = df_step.copy()
@@ -846,29 +787,45 @@ location_meta = {
         "zone": "Biswanath / North Bank Alluvial Flat", "role": "Agricultural depression serving as natural floodway",
         "vuln": "Prolonged standing backwater due to adverse negative topographic slope."
     },
-    "Majuli Island (Upper Assam - Fluvial Island & Riverine Lowlands)": {
+    "Majuli Island (Upper Reach - Fluvial Island Context)": {
         "lat": 26.95, "lon": 94.20, "inside_ai": False, "grid_cell": None,
         "zone": "Upper Assam / World's Largest Inhabited River Island", "role": "Subansiri-Brahmaputra bifurcated confluence zone",
         "vuln": "Catastrophic fluvial bankline erosion; recurrent monsoonal submergence of char communities."
     },
-    "Guwahati Gateway Chokepoint (Kamrup Alluvial Defile & Port)": {
+    "Guwahati Gateway Chokepoint (Kamrup Alluvial Defile Context)": {
         "lat": 26.18, "lon": 91.75, "inside_ai": False, "grid_cell": None,
         "zone": "Kamrup Metropolitan / Brahmaputra Narrow Defile", "role": "Bedrock gorge constriction (Saraighat defile)",
         "vuln": "High-velocity backflow combined with urban pluvial runoff ponding."
     },
-    "Dibrugarh Upper Reach (East Assam - Himalayan Inflow)": {
+    "Dibrugarh Upper Reach (East Assam Context)": {
         "lat": 27.48, "lon": 94.92, "inside_ai": False, "grid_cell": None,
         "zone": "Upper Assam / Dibrugarh Plain", "role": "Dihing-Lohit-Dibang Himalayan confluence entrance",
         "vuln": "Heavy sediment aggradation raising riverbed elevation above surrounding plains."
     },
-    "Dhubri Western Outfall (West Assam - Bangladesh Border)": {
+    "Dhubri Western Outfall (West Assam Context)": {
         "lat": 26.02, "lon": 89.97, "inside_ai": False, "grid_cell": None,
         "zone": "Lower Assam / Outflow Gateway to Bangladesh", "role": "Brahmaputra-Jamuna cross-border terminal drainage",
         "vuln": "Broad-scale backwater pooling as river enters the low-gradient Bengal basin."
     }
 }
 
-if "Peak Threat" in target_focal_choice:
+# Resolve selected location (User click takes precedence if set, otherwise focal dropdown)
+if st.session_state.get("last_clicked_coords") is not None:
+    click_lat, click_lon = st.session_state.last_clicked_coords
+    dists = (df_step_inspector["lat"] - click_lat)**2 + (df_step_inspector["lon"] - click_lon)**2
+    c_idx = dists.idxmin()
+    c_row = int(df_step_inspector.loc[c_idx, "row"])
+    c_col = int(df_step_inspector.loc[c_idx, "col"])
+    loc_lat = float(df_step_inspector.loc[c_idx, "lat"])
+    loc_lon = float(df_step_inspector.loc[c_idx, "lon"])
+    loc_info = {
+        "lat": loc_lat, "lon": loc_lon, "inside_ai": True, "grid_cell": (c_row, c_col),
+        "zone": "Interactive Map Click Inspection",
+        "role": f"User-Inspected Spatial Cell [{c_row}, {c_col}]",
+        "vuln": "Direct on-map inspection of terrain elevation, flood vulnerability, and downhill drainage."
+    }
+    target_focal_choice = f"Map Clicked Cell [{c_row}, {c_col}]"
+elif "Peak Threat" in target_focal_choice:
     max_idx = df_step_inspector["risk_score"].idxmax()
     peak_row = int(df_step_inspector.loc[max_idx, "row"])
     peak_col = int(df_step_inspector.loc[max_idx, "col"])
@@ -885,26 +842,45 @@ else:
 
 target_coords = (loc_lat, loc_lon)
 
-# Build & Display District-Scale 3D Flood Simulation Canvas
-fig_assam = build_district_3d_simulation_map(
-    topo=topo,
+# Build & Display 2D Interactive GIS Flood Intelligence Map
+folium_map = build_interactive_map(
+    lat_grid=topo["lat_grid"],
+    lon_grid=topo["lon_grid"],
+    risk_grid=spatial_preds["risk_grid"],
+    gt_grid=spatial_preds["gt_grid"],
+    perm_water_grid=spatial_preds["perm_water_grid"],
+    df_step=df_step_inspector,
     sim_data=sim_assam,
     active_stage_idx=curr_stage_idx,
-    spatial_preds=spatial_preds,
-    scale_level=active_camera_preset,
-    show_terrain=show_terrain_dem,
-    show_boundaries=show_district_boundaries,
-    show_ai_footprint=show_ai_footprint_layer,
-    show_river=show_river_network,
-    show_floodwater=show_sim_floodwater,
-    show_streamlines=show_gravity_streamlines,
+    active_layer_var="risk",
+    show_risk=show_risk_surface,
+    show_sim_floodwater=show_sim_floodwater,
+    show_flood_front=show_flood_front,
+    show_water=show_permanent_river,
     show_gt=show_observed_dfo_gt,
-    show_landmarks=True,
-    selected_location=target_coords,
-    vertical_exaggeration=float(vert_exag)
+    show_boundaries=show_district_boundaries,
+    show_contours=True,
+    show_inspector=False,
+    risk_threshold=float(risk_threshold_slider),
+    selected_location=target_coords
 )
 
-st.plotly_chart(fig_assam, use_container_width=True)
+map_output = st_folium(
+    folium_map,
+    use_container_width=True,
+    height=640,
+    returned_objects=["last_clicked"],
+    key=f"flood_map_stage_{curr_stage_idx}"
+)
+
+# Process interactive map click
+if map_output and map_output.get("last_clicked"):
+    new_click_lat = float(map_output["last_clicked"]["lat"])
+    new_click_lon = float(map_output["last_clicked"]["lng"])
+    prev_click = st.session_state.get("last_clicked_coords")
+    if prev_click is None or abs(prev_click[0] - new_click_lat) > 1e-4 or abs(prev_click[1] - new_click_lon) > 1e-4:
+        st.session_state.last_clicked_coords = (new_click_lat, new_click_lon)
+        st.rerun()
 
 # Dynamic Simulation Progression Metrics Strip (Updates with each stage)
 s_cells = active_stage_dict["flooded_cells"]
