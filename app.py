@@ -15,17 +15,38 @@ from src.data_loader import load_data_for_tag, generate_base_topography
 from src.model import FloodRiskModel, train_and_save_all_models
 from src.prediction import generate_spatial_prediction
 from src.alerts import evaluate_flood_alert
-from src.visualization import (
-    generate_assam_topography,
-    compute_district_flood_simulation,
-    build_district_3d_simulation_map,
-    compute_assam_flood_simulation,
-    build_assam_3d_simulation_map,
-    compute_downhill_flow_paths,
-    plot_risk_timeline,
-    plot_feature_importance_chart,
-    plot_confusion_matrix_chart
-)
+
+# Self-healing import guard: long-running Streamlit processes can retain stale module caches in sys.modules.
+# Evict stale module from memory to ensure newly added simulation functions are loaded from disk.
+import sys
+if "src.visualization" in sys.modules and not hasattr(sys.modules["src.visualization"], "compute_district_flood_simulation"):
+    sys.modules.pop("src.visualization", None)
+
+try:
+    from src.visualization import (
+        generate_assam_topography,
+        compute_district_flood_simulation,
+        build_district_3d_simulation_map,
+        compute_assam_flood_simulation,
+        build_assam_3d_simulation_map,
+        compute_downhill_flow_paths,
+        plot_risk_timeline,
+        plot_feature_importance_chart,
+        plot_confusion_matrix_chart
+    )
+except ImportError:
+    sys.modules.pop("src.visualization", None)
+    from src.visualization import (
+        generate_assam_topography,
+        compute_district_flood_simulation,
+        build_district_3d_simulation_map,
+        compute_assam_flood_simulation,
+        build_assam_3d_simulation_map,
+        compute_downhill_flow_paths,
+        plot_risk_timeline,
+        plot_feature_importance_chart,
+        plot_confusion_matrix_chart
+    )
 from src.validation import run_comparative_evaluation
 
 # Page Configuration
