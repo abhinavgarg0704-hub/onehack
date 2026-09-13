@@ -233,6 +233,73 @@ def smoke_test_assam_3d_pipeline() -> bool:
         traceback.print_exc()
         return False
 
+def smoke_test_district_3d_pipeline() -> bool:
+    """Executes the district-scale (Golaghat & Nagaon) 3D simulation pipeline end-to-end."""
+    print_header("SMOKE TESTING DISTRICT-SCALE 3D SIMULATION PIPELINE")
+    try:
+        from src.visualization import (
+            compute_district_flood_simulation,
+            build_district_3d_simulation_map
+        )
+        from src.data_loader import load_data_for_tag, generate_base_topography
+        from src.model import FloodRiskModel
+        from src.prediction import generate_spatial_prediction
+        import config
+
+        print("1. Generating base topography (50x75 DEM, ~2,640 km^2)...")
+        topo = generate_base_topography(config.STUDY_AREA["grid_rows"], config.STUDY_AREA["grid_cols"])
+        assert topo["elevation"].shape == (50, 75), "Topography shape mismatch"
+        assert "permanent_water" in topo, "Permanent water missing"
+        print("   [OK] Base topography verified (50x75, 3,750 cells)")
+
+        print("2. Generating local sector AI predictions...")
+        df_step = load_data_for_tag("T")
+        rf_model = FloodRiskModel("rf")
+        rf_model.load()
+        sp_local = generate_spatial_prediction(df_step, rf_model)
+        assert "risk_grid" in sp_local, "Local AI risk grid missing"
+        print("   [OK] AI predictions verified")
+
+        print("3. Precomputing district terrain-guided flood simulation...")
+        sim_district = compute_district_flood_simulation(topo, spatial_preds=sp_local, rainfall_7d=342.8)
+        assert len(sim_district["stages"]) == 5, "Expected 5 simulation stages"
+        for i, stg in enumerate(sim_district["stages"]):
+            assert "water_mask" in stg, f"water_mask missing from stage {i}"
+            assert "newly_inundated" in stg, f"newly_inundated missing from stage {i}"
+            assert "flooded_cells" in stg, f"flooded_cells missing from stage {i}"
+            assert "newly_flooded_cells" in stg, f"newly_flooded_cells missing from stage {i}"
+            print(f"   Stage {i} ({stg['tag']}): {stg['name']} | Flooded: {stg['flooded_cells']} cells ({stg['flooded_area_km2']:.1f} km²) | New Front: +{stg['newly_flooded_cells']} cells")
+        print("   [OK] 5 district flood simulation stages verified")
+
+        print("4. Building district 3D simulation canvas (Stage 2: Floodplain Expansion)...")
+        fig = build_district_3d_simulation_map(
+            topo=topo,
+            sim_data=sim_district,
+            active_stage_idx=2,
+            spatial_preds=sp_local,
+            scale_level="district",
+            show_terrain=True,
+            show_boundaries=True,
+            show_ai_footprint=True,
+            show_river=True,
+            show_floodwater=True,
+            show_streamlines=True,
+            show_gt=True,
+            show_landmarks=True,
+            selected_location=(26.60, 93.35),
+            vertical_exaggeration=2.2
+        )
+        trace_count = len(fig.data)
+        assert trace_count >= 8, f"Expected >= 8 traces, got {trace_count}"
+        print(f"   [OK] District 3D Figure generated successfully with {trace_count} visual layers")
+
+        return True
+    except Exception as e:
+        import traceback
+        print(f"[FAIL] District smoke test failed with exception: {e}")
+        traceback.print_exc()
+        return False
+
 def main():
     print_header("FLOODSENSE AI -- VISUALIZATION API CONTRACT VERIFICATION SUITE")
     print(f"Python Interpreter: {sys.executable}")
@@ -253,7 +320,12 @@ def main():
     if not ast_ok:
         sys.exit(1)
 
-    # 4. Smoke test end-to-end execution
+    # 4. Smoke test district 3D pipeline
+    district_ok = smoke_test_district_3d_pipeline()
+    if not district_ok:
+        sys.exit(1)
+
+    # 5. Smoke test statewide Assam 3D pipeline
     smoke_ok = smoke_test_assam_3d_pipeline()
     if not smoke_ok:
         sys.exit(1)

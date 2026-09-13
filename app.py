@@ -17,6 +17,8 @@ from src.prediction import generate_spatial_prediction
 from src.alerts import evaluate_flood_alert
 from src.visualization import (
     generate_assam_topography,
+    compute_district_flood_simulation,
+    build_district_3d_simulation_map,
     compute_assam_flood_simulation,
     build_assam_3d_simulation_map,
     compute_downhill_flow_paths,
@@ -624,18 +626,21 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- MAP OPERATIONAL HUD ---
-sim_assam = compute_assam_flood_simulation(
-    topo_assam,
-    sp_local=spatial_preds,
+sim_assam = compute_district_flood_simulation(
+    topo,
+    spatial_preds=spatial_preds,
     rainfall_7d=current_rainfall_7d
 )
 sim_stages = sim_assam["stages"]
 
 if "sim_stage_idx" not in st.session_state:
-    st.session_state.sim_stage_idx = 4  # Default to Stage 5 (Peak Crest)
+    st.session_state.sim_stage_idx = 0  # Default to Stage 0 (Baseline Riverbed)
+
+if "is_playing" not in st.session_state:
+    st.session_state.is_playing = False
 
 if "scale_choice" not in st.session_state:
-    st.session_state.scale_choice = "🌏 Level 1: Statewide Assam (Default)"
+    st.session_state.scale_choice = "📍 Level 1: District Study Area (Golaghat - Nagaon, Default)"
 
 if "sim_speed" not in st.session_state:
     st.session_state.sim_speed = 1.0
@@ -649,66 +654,70 @@ st.markdown(f"""
     <div style="display: flex; align-items: center; gap: 10px;">
         <span class="hud-pulse-dot"></span>
         <div>
-            <span class="hud-title">● FLOODSENSE AI &bull; STATEWIDE ASSAM 3D FLOOD INTELLIGENCE CANVAS</span>
-            <div class="hud-subtitle">GOOGLE EARTH-SCALE GEOSPATIAL INTELLIGENCE &bull; BRAHMAPUTRA ALLUVIAL VALLEY &bull; MULTI-STAGE PROPAGATION</div>
+            <span class="hud-title">● STUDY AREA: GOLAGHAT & NAGAON DISTRICTS, ASSAM</span>
+            <div class="hud-subtitle">KAZIRANGA ALLUVIAL FLOODPLAIN CORRIDOR &bull; 26.45°N–26.85°N, 93.05°E–93.65°E &bull; ~2,640 KM² (3,750 CELLS)</div>
         </div>
     </div>
     <div style="display: flex; align-items: center; gap: 8px;">
-        <span class="hud-chip" style="color: #38BDF8; border-color: rgba(56, 189, 248, 0.4);">STAGE {curr_stage_idx + 1}/5: {active_stage_dict['name'].upper()} ({active_stage_dict['tag']})</span>
-        <span class="hud-chip" style="color: #34D399; border-color: rgba(52, 211, 153, 0.4);">INUNDATED: {active_stage_dict['flooded_cells']} CELLS ({active_stage_dict['flooded_area_km2']:.0f} km²)</span>
-        <span class="hud-chip">STEP: {selected_tag} ({obs_date})</span>
+        <span class="hud-chip" style="color: #38BDF8; border-color: rgba(56, 189, 248, 0.4);">STAGE {curr_stage_idx}/4: {active_stage_dict['name'].upper()} ({active_stage_dict['tag']})</span>
+        <span class="hud-chip" style="color: #00F0FF; border-color: rgba(0, 240, 255, 0.4);">NEW FRONT: +{active_stage_dict.get('newly_flooded_cells', 0)} CELLS (+{active_stage_dict.get('newly_flooded_km2', 0.0):.1f} km²)</span>
+        <span class="hud-chip" style="color: #34D399; border-color: rgba(52, 211, 153, 0.4);">TOTAL INUNDATED: {active_stage_dict['flooded_cells']} CELLS ({active_stage_dict['flooded_area_km2']:.1f} km²)</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# Row 1: Google Earth Scale Presets, Simulation Playback Controls, and Playback Speed
+# Row 1: Camera Scale Presets, Simulation Playback Controls, and Playback Speed
 c_cam, c_play, c_spd = st.columns([1.5, 1.8, 1.1])
 
 with c_cam:
     scale_options = [
-        "🌏 Level 1: Statewide Assam (Default)",
-        "🏞️ Level 2: Brahmaputra Valley",
-        "📍 Level 3: AI Sector (Kaziranga Alluvial)",
-        "🔬 Level 4: Local Threat Cell (High-Risk Hotspot)",
-        "🗺️ 2D Plan View (Orthogonal Top-Down GIS)"
+        "📍 Level 1: District Study Area (Golaghat - Nagaon, Default)",
+        "🌊 Level 2: Floodplain Inundation Basin (Close-up)",
+        "🔬 Level 3: Local Threat Hotspot (High-Risk Epicenter)",
+        "🗺️ Level 4: 2D Plan View (Orthogonal GIS)",
+        "🌏 Level 5: Regional Assam Context (Zoomed Out)"
     ]
     scale_preset_map = {
-        "🌏 Level 1: Statewide Assam (Default)": "assam",
-        "🏞️ Level 2: Brahmaputra Valley": "valley",
-        "📍 Level 3: AI Sector (Kaziranga Alluvial)": "sector",
-        "🔬 Level 4: Local Threat Cell (High-Risk Hotspot)": "cell",
-        "🗺️ 2D Plan View (Orthogonal Top-Down GIS)": "topdown"
+        "📍 Level 1: District Study Area (Golaghat - Nagaon, Default)": "district",
+        "🌊 Level 2: Floodplain Inundation Basin (Close-up)": "basin",
+        "🔬 Level 3: Local Threat Hotspot (High-Risk Epicenter)": "hotspot",
+        "🗺️ Level 4: 2D Plan View (Orthogonal GIS)": "topdown",
+        "🌏 Level 5: Regional Assam Context (Zoomed Out)": "regional"
     }
-    cur_idx = scale_options.index(st.session_state.scale_choice) if st.session_state.scale_choice in scale_options else 0
+    if st.session_state.scale_choice not in scale_options:
+        st.session_state.scale_choice = scale_options[0]
+    cur_idx = scale_options.index(st.session_state.scale_choice)
     selected_scale = st.selectbox(
-        "🎥 Google Earth Scale Level",
+        "🎥 Camera Scale Level",
         options=scale_options,
         index=cur_idx,
-        help="Switch zoom scale: Full Assam statewide extent, Brahmaputra valley axis, high-resolution AI sector, local threat cell, or top-down 2D GIS."
+        help="Switch zoom scale: High-resolution district study area, floodplain basin, local threat hotspot, 2D top-down GIS, or regional Assam overview."
     )
     st.session_state.scale_choice = selected_scale
     active_camera_preset = scale_preset_map[selected_scale]
 
 with c_play:
     st.markdown("<div style='font-size: 0.70rem; font-weight: 700; text-transform: uppercase; color: #94A3B8; margin-bottom: 4px;'>🌊 Flood Simulation Playback</div>", unsafe_allow_html=True)
-    b1, b2, b3, b4 = st.columns([1, 1, 1, 1.2])
+    b1, b2, b3, b4 = st.columns([1, 1, 1, 1.1])
     with b1:
-        if st.button("▶ Play", key="btn_play_assam_sim", help="Play forward through multi-stage flood propagation"):
-            for s_idx in range(5):
-                st.session_state.sim_stage_idx = s_idx
-                time.sleep(0.35 / st.session_state.sim_speed)
+        if st.button("▶ Play", key="btn_play_sim", help="Play forward through multi-stage flood propagation"):
+            st.session_state.is_playing = True
+            if st.session_state.sim_stage_idx >= 4:
+                st.session_state.sim_stage_idx = 0
             st.rerun()
     with b2:
-        if st.button("⏸ Pause", key="btn_pause_assam_sim", help="Pause flood simulation at current stage"):
-            pass
+        if st.button("⏸ Pause", key="btn_pause_sim", help="Pause flood simulation at current stage"):
+            st.session_state.is_playing = False
+            st.rerun()
     with b3:
-        if st.button("↺ Reset", key="btn_reset_assam_sim", help="Reset simulation to Stage 1 (T-7 baseline riverbed)"):
+        if st.button("↺ Reset", key="btn_reset_sim", help="Reset simulation to Stage 0 (Baseline riverbed)"):
             st.session_state.sim_stage_idx = 0
+            st.session_state.is_playing = False
             st.rerun()
     with b4:
-        if st.button("⚡ Demo", key="btn_demo_assam_sim", help="Trigger demo mode: showcase full statewide Assam extent at peak disaster crest"):
-            st.session_state.scale_choice = "🌏 Level 1: Statewide Assam (Default)"
-            st.session_state.sim_stage_idx = 4
+        if st.button("⏭ Next", key="btn_step_sim", help="Step forward to next simulation stage"):
+            st.session_state.is_playing = False
+            st.session_state.sim_stage_idx = min(4, st.session_state.sim_stage_idx + 1)
             st.rerun()
 
 with c_spd:
@@ -722,25 +731,28 @@ with c_spd:
     st.session_state.sim_speed = speed_multiplier
 
 # Multi-Stage Simulation Propagation Slider
-stage_descriptions = [
-    f"Stage {i+1}: {s['tag']} ({s['date']}) — {s['name']} ({s['flooded_cells']} cells, {s['flooded_area_km2']:.0f} km²)"
-    for i, s in enumerate(sim_stages)
-]
-
 sim_slider = st.slider(
-    "Terrain-Guided Flood Propagation Stage (1: T-7 Baseline ➔ 5: T Peak Crest)",
-    min_value=1,
-    max_value=5,
-    value=curr_stage_idx + 1,
+    "Terrain-Guided Flood Simulation Stage (0: Baseline ➔ 4: Peak Crest)",
+    min_value=0,
+    max_value=4,
+    value=curr_stage_idx,
     step=1,
-    help="Scrub through the 5 terrain-guided flood propagation stages across Assam."
+    help="Scrub through the 5 terrain-guided flood propagation stages across the Golaghat - Nagaon study area."
 )
-if sim_slider - 1 != curr_stage_idx:
-    st.session_state.sim_stage_idx = sim_slider - 1
+if sim_slider != curr_stage_idx:
+    st.session_state.sim_stage_idx = sim_slider
+    st.session_state.is_playing = False
     curr_stage_idx = st.session_state.sim_stage_idx
     active_stage_dict = sim_stages[curr_stage_idx]
 
-st.caption(f"📌 **Current Simulation Stage:** {stage_descriptions[curr_stage_idx]}")
+stage_labels = [
+    f"Stage 0: {sim_stages[0]['tag']} ({sim_stages[0]['date']}) — {sim_stages[0]['name']} ({sim_stages[0]['flooded_cells']} cells, {sim_stages[0]['flooded_area_km2']:.1f} km²)",
+    f"Stage 1: {sim_stages[1]['tag']} ({sim_stages[1]['date']}) — {sim_stages[1]['name']} (+{sim_stages[1].get('newly_flooded_cells', 0)} newly flooded, {sim_stages[1]['flooded_area_km2']:.1f} km²)",
+    f"Stage 2: {sim_stages[2]['tag']} ({sim_stages[2]['date']}) — {sim_stages[2]['name']} (+{sim_stages[2].get('newly_flooded_cells', 0)} newly flooded, {sim_stages[2]['flooded_area_km2']:.1f} km²)",
+    f"Stage 3: {sim_stages[3]['tag']} ({sim_stages[3]['date']}) — {sim_stages[3]['name']} (+{sim_stages[3].get('newly_flooded_cells', 0)} newly flooded, {sim_stages[3]['flooded_area_km2']:.1f} km²)",
+    f"Stage 4: {sim_stages[4]['tag']} ({sim_stages[4]['date']}) — {sim_stages[4]['name']} (Peak Crest, {sim_stages[4]['flooded_cells']} cells, {sim_stages[4]['flooded_area_km2']:.1f} km²)"
+]
+st.caption(f"📌 **Current Simulation Stage:** {stage_labels[curr_stage_idx]}")
 
 # Row 2: Hydraulic & Terrain Layers, Target Location, and Vertical Exaggeration Slider
 c_layers, c_loc, c_exag = st.columns([1.9, 1.6, 1.0])
@@ -749,13 +761,13 @@ with c_layers:
     st.markdown("<div style='font-size: 0.70rem; font-weight: 700; text-transform: uppercase; color: #94A3B8; margin-bottom: 4px;'>Hydraulic & Terrain Layers</div>", unsafe_allow_html=True)
     lt1, lt2, lt3 = st.columns(3)
     with lt1:
-        show_terrain_dem = st.checkbox("Assam 3D DEM", value=True, help="Display 3D SRTM Digital Elevation Model of Assam")
-        show_district_boundaries = st.checkbox("District Boundaries", value=True, help="Display 33 official Assam district boundary lines")
+        show_terrain_dem = st.checkbox("District 3D DEM", value=True, help="Display 3D SRTM Digital Elevation Model of Golaghat & Nagaon study area")
+        show_district_boundaries = st.checkbox("District Boundaries", value=True, help="Display official Golaghat & Nagaon district boundary lines")
     with lt2:
-        show_river_network = st.checkbox("Brahmaputra River", value=True, help="Display permanent Brahmaputra channel and major tributaries")
-        show_sim_floodwater = st.checkbox("Simulated Floods", value=True, help="Display dynamic expanding simulated water surface")
+        show_river_network = st.checkbox("Brahmaputra River", value=True, help="Display permanent Brahmaputra braided channel")
+        show_sim_floodwater = st.checkbox("Simulated Floods", value=True, help="Display dynamic expanding simulated water surface & advancing front")
     with lt3:
-        show_ai_footprint_layer = st.checkbox("AI Sector Footprint", value=True, help="Display high-resolution AI model bounding frame & risk surface")
+        show_ai_footprint_layer = st.checkbox("AI Risk Hotspots", value=True, help="Display high-risk core prediction cells")
         show_observed_dfo_gt = st.checkbox("DFO Ground Truth", value=True, help="Display observed satellite flood extent from DFO Event 4924")
     show_gravity_streamlines = True
 
@@ -852,12 +864,12 @@ else:
 
 target_coords = (loc_lat, loc_lon)
 
-# Build & Display Google Earth-Scale 3D Flood Simulation Canvas
-fig_assam = build_assam_3d_simulation_map(
-    topo_assam=topo_assam,
+# Build & Display District-Scale 3D Flood Simulation Canvas
+fig_assam = build_district_3d_simulation_map(
+    topo=topo,
     sim_data=sim_assam,
     active_stage_idx=curr_stage_idx,
-    sp_local=spatial_preds,
+    spatial_preds=spatial_preds,
     scale_level=active_camera_preset,
     show_terrain=show_terrain_dem,
     show_boundaries=show_district_boundaries,
@@ -873,14 +885,63 @@ fig_assam = build_assam_3d_simulation_map(
 
 st.plotly_chart(fig_assam, use_container_width=True)
 
+# Dynamic Simulation Progression Metrics Strip (Updates with each stage)
+s_cells = active_stage_dict["flooded_cells"]
+s_area = active_stage_dict["flooded_area_km2"]
+s_new_cells = active_stage_dict.get("newly_flooded_cells", 0)
+s_new_km2 = active_stage_dict.get("newly_flooded_km2", 0.0)
+s_rain = active_stage_dict.get("rainfall_7d", active_stage_dict.get("rain", current_rainfall_7d))
+s_alert = active_stage_dict.get("alert", "NORMAL")
+s_alert_color = "#EF4444" if s_alert == "HIGH_RISK" else ("#F97316" if s_alert == "WARNING" else ("#F59E0B" if s_alert == "WATCH" else "#10B981"))
+
+st.markdown(f"""
+<div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 8px; margin-bottom: 12px;">
+    <div style="background: #0D1526; border: 1px solid #1E293B; border-left: 3px solid #38BDF8; border-radius: 6px; padding: 10px 14px;">
+        <div style="font-size: 0.68rem; font-weight: 700; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.05em;">Simulation Stage</div>
+        <div style="font-size: 1.05rem; font-weight: 800; color: #F8FAFC; margin-top: 2px;">{active_stage_dict['tag']} ({curr_stage_idx}/4)</div>
+        <div style="font-size: 0.68rem; color: #38BDF8; margin-top: 2px;">{active_stage_dict['name']}</div>
+    </div>
+    <div style="background: #0D1526; border: 1px solid #1E293B; border-left: 3px solid #34D399; border-radius: 6px; padding: 10px 14px;">
+        <div style="font-size: 0.68rem; font-weight: 700; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.05em;">Total Inundated Area</div>
+        <div style="font-size: 1.05rem; font-weight: 800; color: #34D399; margin-top: 2px;">{s_area:.1f} km²</div>
+        <div style="font-size: 0.68rem; color: #64748B; margin-top: 2px;">{s_cells:,} submerged cells</div>
+    </div>
+    <div style="background: #0D1526; border: 1px solid #1E293B; border-left: 3px solid #00F0FF; border-radius: 6px; padding: 10px 14px;">
+        <div style="font-size: 0.68rem; font-weight: 700; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.05em;">Advancing Flood Front</div>
+        <div style="font-size: 1.05rem; font-weight: 800; color: #00F0FF; margin-top: 2px;">+{s_new_km2:.1f} km²</div>
+        <div style="font-size: 0.68rem; color: #00F0FF; margin-top: 2px;">+{s_new_cells:,} newly inundated</div>
+    </div>
+    <div style="background: #0D1526; border: 1px solid #1E293B; border-left: 3px solid {s_alert_color}; border-radius: 6px; padding: 10px 14px;">
+        <div style="font-size: 0.68rem; font-weight: 700; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.05em;">Precipitation Surge</div>
+        <div style="font-size: 1.05rem; font-weight: 800; color: #F8FAFC; margin-top: 2px;">{s_rain:.1f} mm</div>
+        <div style="font-size: 0.68rem; color: {s_alert_color}; font-weight: 600; margin-top: 2px;">{s_alert} Alert Tier</div>
+    </div>
+    <div style="background: #0D1526; border: 1px solid #1E293B; border-left: 3px solid #F59E0B; border-radius: 6px; padding: 10px 14px;">
+        <div style="font-size: 0.68rem; font-weight: 700; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.05em;">AI Inundation Risk</div>
+        <div style="font-size: 1.05rem; font-weight: 800; color: #F59E0B; margin-top: 2px;">{spatial_preds['max_risk']:.1f}% Max</div>
+        <div style="font-size: 0.68rem; color: #64748B; margin-top: 2px;">Mean: {spatial_preds['mean_risk']:.1f}% across basin</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Playback Auto-Advance Cycle (Reruns to next stage smoothly when playing)
+if st.session_state.get("is_playing", False):
+    if curr_stage_idx < 4:
+        step_delay = 0.95 / max(0.25, float(st.session_state.get("sim_speed", 1.0)))
+        time.sleep(step_delay)
+        st.session_state.sim_stage_idx = curr_stage_idx + 1
+        st.rerun()
+    else:
+        st.session_state.is_playing = False
+
 # Scientific Transparency Notice
 st.markdown("""
 <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid #1E293B; border-left: 4px solid #38BDF8; border-radius: 8px; padding: 12px 18px; margin-top: 6px; margin-bottom: 14px;">
     <div style="font-size: 0.76rem; font-weight: 800; color: #38BDF8; letter-spacing: 0.05em; text-transform: uppercase;">
-        💡 SCIENTIFIC TRANSPARENCY & VALIDATION ARCHITECTURE &bull; FULL-ASSAM GEOGRAPHIC CONTEXT VS. AI FOOTPRINT
+        💡 SCIENTIFIC TRANSPARENCY & VALIDATION ARCHITECTURE &bull; DISTRICT-SCALE STUDY AREA (GOLAGHAT & NAGAON)
     </div>
     <div style="font-size: 0.72rem; color: #94A3B8; line-height: 1.5; margin-top: 4px;">
-        <b>Rigorous Validation Protocol:</b> High-resolution machine learning inference (Sentinel-2 multi-spectral bands + CHIRPS rainfall + SRTM elevation) is strictly trained and evaluated on the <b>Central Assam Alluvial Sector (Kaziranga–Golaghat, 2,640 km²)</b>, benchmarked against Global Flood Database (DFO Event 4924) ground truth with zero temporal or spatial leakage. The full-Assam statewide 3D terrain (~78,438 km²) provides regional topographic and hydrologic context (650 km Brahmaputra mainstem and major tributaries). <b>We strictly adhere to scientific integrity: we do NOT extrapolate or fabricate statewide AI risk predictions outside the validated training sector.</b>
+        <b>Rigorous Validation Protocol:</b> High-resolution machine learning inference (Sentinel-2 multi-spectral bands + CHIRPS rainfall + SRTM elevation) is strictly trained and evaluated on the <b>Central Assam Alluvial Sector (Kaziranga Floodplain Corridor across Golaghat & Nagaon Districts, ~2,640 km², 3,750 cells at ~500m resolution)</b>, benchmarked against Global Flood Database (DFO Event 4924) ground truth with zero temporal or spatial leakage. Terrain-guided flood simulation models gravity overland flow (-∇z) and progressive river overbank inundation across 5 discrete event timesteps. <b>We strictly adhere to scientific integrity: we do NOT extrapolate or fabricate statewide AI risk predictions outside the validated training sector.</b>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -895,6 +956,23 @@ if loc_info["inside_ai"] and loc_info["grid_cell"] is not None:
     t_cat = "VERY HIGH" if t_score >= 75 else ("HIGH" if t_score >= 50 else ("MODERATE" if t_score >= 25 else "LOW"))
     t_color = "#EF4444" if t_cat == "VERY HIGH" else ("#F97316" if t_cat == "HIGH" else ("#F59E0B" if t_cat == "MODERATE" else "#10B981"))
     t_gt = "Inundated (DFO Event 4924 Ground Truth)" if int(target_cell["is_flooded"]) == 1 else "Dry Ground (Non-Flooded)"
+
+    # Cell Flood Simulation Status at current stage
+    act_w_mask = active_stage_dict.get("water_mask", np.zeros_like(topo["elevation"], dtype=bool))
+    act_new_mask = active_stage_dict.get("newly_inundated", np.zeros_like(topo["elevation"], dtype=bool))
+    is_perm_water = bool(topo.get("permanent_water", np.zeros_like(topo["elevation"], dtype=bool))[gr, gc])
+    if is_perm_water:
+        cell_sim_status = "Permanent Riverbed"
+        cell_sim_color = "#0284C7"
+    elif act_new_mask[gr, gc]:
+        cell_sim_status = "⚡ Advancing Flood Front (Newly Flooded)"
+        cell_sim_color = "#00F0FF"
+    elif act_w_mask[gr, gc]:
+        cell_sim_status = "🌊 Submerged (Active Floodwater)"
+        cell_sim_color = "#38BDF8"
+    else:
+        cell_sim_status = "✅ Dry Ground (Above Water Level)"
+        cell_sim_color = "#10B981"
 
     flow_metrics = compute_downhill_flow_paths(
         elev_grid=topo["elevation"],
@@ -928,6 +1006,10 @@ if loc_info["inside_ai"] and loc_info["grid_cell"] is not None:
             <div class="analyst-item">
                 <div class="analyst-item-label">AI Flood Risk</div>
                 <div class="analyst-item-value" style="color: {t_color};">{t_score:.1f}%</div>
+            </div>
+            <div class="analyst-item">
+                <div class="analyst-item-label">Simulation Status</div>
+                <div class="analyst-item-value" style="color: {cell_sim_color}; font-size: 0.72rem; font-weight: 700;">{cell_sim_status}</div>
             </div>
             <div class="analyst-item">
                 <div class="analyst-item-label">7-Day Rainfall</div>

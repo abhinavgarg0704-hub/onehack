@@ -20,6 +20,8 @@ from src.data_loader import load_assam_boundary_and_rivers
 __all__ = [
     "load_assam_boundary_and_rivers",
     "generate_assam_topography",
+    "compute_district_flood_simulation",
+    "build_district_3d_simulation_map",
     "compute_assam_flood_simulation",
     "build_assam_3d_simulation_map",
     "build_hybrid_flood_simulation_map",
@@ -130,12 +132,132 @@ def generate_assam_topography(rows: int = 65, cols: int = 95, seed: int = 42, **
         }
     }
 
+def compute_district_flood_simulation(
+    topo: dict,
+    spatial_preds: dict = None,
+    rainfall_7d: float = 342.8,
+    **kwargs
+) -> dict:
+    """
+    Precomputes 5 realistic terrain-guided flood propagation stages across the
+    Golaghat & Nagaon district study area (~2,640 km² at ~500m resolution, 3,750 cells).
+    Simulates water progressively spilling from the braided Brahmaputra channel and
+    inundating low-lying alluvial floodplains based on negative elevation gradients (-∇z),
+    proximity to drainage channels, and AI model flood vulnerability scores.
+    """
+    elev = topo["elevation"]
+    river = np.asarray(topo["permanent_water"], dtype=bool)
+    dist_to_drainage = topo.get("dist_to_drainage", np.zeros_like(elev))
+    lat_grid = topo["lat_grid"]
+    lon_grid = topo["lon_grid"]
+    rows, cols = elev.shape
+
+    risk = spatial_preds["risk_grid"] if spatial_preds is not None and "risk_grid" in spatial_preds else np.full_like(elev, 50.0)
+    gt = spatial_preds["gt_grid"] if spatial_preds is not None and "gt_grid" in spatial_preds else np.zeros_like(elev)
+
+    gy, gx = np.gradient(elev)
+    vy, vx = -gy, -gx
+
+    # 5 Real Physical Event Progression Stages (Based on July 2020 Disaster)
+    stages_meta = [
+        {"stage": 0, "tag": "T-7", "date": "2020-07-07", "rain": 58.4, "alert": "NORMAL", "name": "Baseline Riverbed"},
+        {"stage": 1, "tag": "T-5", "date": "2020-07-09", "rain": 94.2, "alert": "NORMAL", "name": "Early Rise & Lowland Seepage"},
+        {"stage": 2, "tag": "T-2", "date": "2020-07-12", "rain": 224.0, "alert": "WATCH", "name": "Floodplain Expansion & Breach"},
+        {"stage": 3, "tag": "T-1", "date": "2020-07-13", "rain": 286.3, "alert": "WARNING", "name": "Rapid Inundation Surge"},
+        {"stage": 4, "tag": "T", "date": "2020-07-14", "rain": 342.8, "alert": "HIGH_RISK", "name": "Peak Catastrophic Crest"}
+    ]
+
+    # Compute overland flow streamlines (-∇z)
+    all_streamlines = []
+    for r in range(2, rows - 2, 4):
+        for c in range(3, cols - 3, 5):
+            if not river[r, c] and elev[r, c] < 120.0 and risk[r, c] >= 25.0:
+                curr_r, curr_c = float(r), float(c)
+                sx, sy, sz = [], [], []
+                for _ in range(30):
+                    ir, ic = int(round(curr_r)), int(round(curr_c))
+                    if ir < 0 or ir >= rows or ic < 0 or ic >= cols:
+                        break
+                    sx.append(float(lon_grid[ir, ic]))
+                    sy.append(float(lat_grid[ir, ic]))
+                    sz.append(float(elev[ir, ic]))
+                    if river[ir, ic]:
+                        break
+                    dr, dc = vy[ir, ic], vx[ir, ic]
+                    mag = np.hypot(dr, dc)
+                    if mag < 1e-4:
+                        break
+                    curr_r += (dr / mag) * 0.90
+                    curr_c += (dc / mag) * 0.90
+                if len(sx) >= 3:
+                    all_streamlines.append({"lons": sx, "lats": sy, "zs": sz})
+
+    stages = []
+    m0 = river.copy()
+    m1 = m0 | ((dist_to_drainage < 850.0) & (elev < 60.0) & (risk >= 25.0))
+    m2 = m1 | ((dist_to_drainage < 2400.0) & (elev < 66.0) & (risk >= 40.0))
+    m3 = m2 | ((elev < 71.0) & ((dist_to_drainage < 4500.0) | (risk >= 52.0)))
+    m4 = m3 | (gt == 1) | ((risk >= 65.0) & (elev < 76.0))
+    stage_masks = [m0.astype(bool), m1.astype(bool), m2.astype(bool), m3.astype(bool), m4.astype(bool)]
+
+    cell_area_km2 = 2640.0 / (rows * cols)  # ~0.704 km2 per cell
+
+    for s_idx, sm in enumerate(stages_meta):
+        water_mask = stage_masks[s_idx].astype(bool)
+        if s_idx == 0:
+            newly_inundated = np.zeros_like(water_mask, dtype=bool)
+        else:
+            newly_inundated = (water_mask & ~stage_masks[s_idx - 1]).astype(bool)
+
+        flooded_cells = int(np.sum(water_mask))
+        flooded_area_km2 = float(flooded_cells * cell_area_km2)
+        newly_flooded_cells = int(np.sum(newly_inundated))
+        newly_flooded_km2 = float(newly_flooded_cells * cell_area_km2)
+        high_risk_cells = int(np.sum(risk >= 70.0))
+        max_risk = float(np.max(risk)) if len(risk) > 0 else 0.0
+
+        active_streamlines = all_streamlines[:min(len(all_streamlines), (s_idx + 1) * 12)]
+
+        stages.append({
+            "stage_num": sm["stage"],
+            "stage_idx": sm["stage"],
+            "tag": sm["tag"],
+            "date": sm["date"],
+            "name": sm["name"],
+            "alert": sm["alert"],
+            "rainfall_7d": sm["rain"],
+            "rain": sm["rain"],
+            "water_mask": water_mask,
+            "newly_inundated": newly_inundated,
+            "flooded_cells": flooded_cells,
+            "flooded_area_km2": flooded_area_km2,
+            "newly_flooded_cells": newly_flooded_cells,
+            "newly_flooded_km2": newly_flooded_km2,
+            "high_risk_cells": high_risk_cells,
+            "max_risk": max_risk,
+            "streamlines": active_streamlines
+        })
+
+    return {
+        "stages": stages,
+        "total_streamlines": len(all_streamlines),
+        "study_area": "Golaghat & Nagaon Districts (Kaziranga Floodplain Corridor), Assam",
+        "bounds": {
+            "min_lat": float(np.min(lat_grid)),
+            "max_lat": float(np.max(lat_grid)),
+            "min_lon": float(np.min(lon_grid)),
+            "max_lon": float(np.max(lon_grid))
+        }
+    }
+
 def compute_assam_flood_simulation(
     topo_assam: dict,
     sp_local: dict = None,
     rainfall_7d: float = 342.8,
     **kwargs
 ) -> dict:
+    if topo_assam.get("elevation", np.array([])).shape == (50, 75):
+        return compute_district_flood_simulation(topo_assam, spatial_preds=sp_local, rainfall_7d=rainfall_7d, **kwargs)
     """
     Precomputes 5 terrain-guided flood propagation stages across Assam.
     Simulates water progressively accumulating, overtopping river banks, and inundating
@@ -238,6 +360,327 @@ def compute_assam_flood_simulation(
         "total_streamlines": len(all_streamlines)
     }
 
+def build_district_3d_simulation_map(
+    topo: dict,
+    sim_data: dict,
+    active_stage_idx: int = 0,
+    spatial_preds: dict = None,
+    scale_level: str = "district",
+    show_terrain: bool = True,
+    show_boundaries: bool = True,
+    show_ai_footprint: bool = True,
+    show_river: bool = True,
+    show_floodwater: bool = True,
+    show_streamlines: bool = True,
+    show_gt: bool = True,
+    show_landmarks: bool = True,
+    selected_location: tuple = (26.65, 93.35),
+    vertical_exaggeration: float = 2.2,
+    **kwargs
+) -> go.Figure:
+    """
+    Renders the high-resolution 3D geospatial flood simulation map across the
+    Golaghat & Nagaon district study area (Kaziranga Alluvial Floodplain Corridor, ~2,640 km²).
+    Visualizes terrain-guided flood propagation across 5 discrete event timesteps,
+    featuring an explicit advancing flood front (newly inundated cells in glowing cyan),
+    permanent Brahmaputra braided channels, real district boundary vectors, and AI risk zones.
+    """
+    elev = topo["elevation"]
+    lat_grid = topo["lat_grid"]
+    lon_grid = topo["lon_grid"]
+    rows, cols = elev.shape
+
+    lats = lat_grid[:, 0]
+    lons = lon_grid[0, :]
+    z_terrain = elev * vertical_exaggeration
+
+    stages = sim_data.get("stages", [])
+    if not stages:
+        # Fallback single stage
+        stages = [{"stage_num": 0, "name": "Baseline", "tag": "T-7", "date": "2020-07-07",
+                   "water_mask": topo.get("permanent_water", np.zeros_like(elev, dtype=bool)),
+                   "newly_inundated": np.zeros_like(elev, dtype=bool),
+                   "flooded_cells": 633, "flooded_area_km2": 445.6, "streamlines": []}]
+
+    curr_idx = max(0, min(active_stage_idx, len(stages) - 1))
+    stage = stages[curr_idx]
+    w_mask = np.asarray(stage.get("water_mask", np.zeros_like(elev, dtype=bool)), dtype=bool)
+    newly_mask = np.asarray(stage.get("newly_inundated", np.zeros_like(elev, dtype=bool)), dtype=bool)
+
+    min_lat, max_lat = float(np.min(lats)), float(np.max(lats))
+    min_lon, max_lon = float(np.min(lons)), float(np.max(lons))
+
+    def sample_elev(lon_pt, lat_pt, offset=1.8):
+        r = int(np.clip((max_lat - lat_pt) / max(max_lat - min_lat, 1e-4) * (rows - 1), 0, rows - 1))
+        c = int(np.clip((lon_pt - min_lon) / max(max_lon - min_lon, 1e-4) * (cols - 1), 0, cols - 1))
+        return elev[r, c] * vertical_exaggeration + offset
+
+    fig = go.Figure()
+
+    # 1. High-Resolution 3D Digital Elevation Model
+    if show_terrain:
+        fig.add_trace(go.Surface(
+            x=lons,
+            y=lats,
+            z=z_terrain,
+            surfacecolor=elev,
+            colorscale=[
+                [0.0, "#0F3D3E"],
+                [0.10, "#1B4D3E"],
+                [0.22, "#2E7D32"],
+                [0.45, "#B8860B"],
+                [0.70, "#8B4513"],
+                [0.88, "#475569"],
+                [1.0, "#E2E8F0"]
+            ],
+            cmin=50.0,
+            cmax=130.0,
+            colorbar=dict(
+                title=dict(text="<b>SRTM Elevation (m)</b>", font=dict(color="#F8FAFC", size=10, family="Inter, sans-serif")),
+                tickfont=dict(color="#CBD5E1", size=9, family="Inter, sans-serif"),
+                len=0.55,
+                x=1.02
+            ),
+            name="District 3D Topography",
+            hoverinfo="text",
+            hovertext=[
+                [f"<b>Elevation: {elev[r, c]:.1f} m</b><br>Coords: {lat_grid[r, c]:.3f}°N, {lon_grid[r, c]:.3f}°E<br>Slope: {topo.get('slope', np.zeros_like(elev))[r, c]:.1f}°" for c in range(cols)]
+                for r in range(rows)
+            ]
+        ))
+
+    # 2. Permanent Brahmaputra River Network
+    if show_river and "permanent_water" in topo:
+        r_mask = topo["permanent_water"]
+        r_z = np.where(r_mask, z_terrain + 0.6, np.nan)
+        fig.add_trace(go.Surface(
+            x=lons,
+            y=lats,
+            z=r_z,
+            colorscale=[[0.0, "#0284C7"], [1.0, "#0369A1"]],
+            showscale=False,
+            opacity=0.94,
+            name="Permanent Brahmaputra Riverbed (JRC)",
+            hoverinfo="text",
+            hovertext="<b>Brahmaputra Braided Riverbed</b><br>Permanent Fluvial Channel"
+        ))
+
+    # 3. Real Vector District Boundaries (Golaghat, Nagaon, Biswanath, Sonitpur)
+    if show_boundaries:
+        assets = load_assam_boundary_and_rivers()
+        bx, by, bz = [], [], []
+        for ring in assets.get("district_rings", []):
+            in_bounds = [p for p in ring if (min_lon - 0.02) <= p[0] <= (max_lon + 0.02) and (min_lat - 0.02) <= p[1] <= (max_lat + 0.02)]
+            if len(in_bounds) >= 2:
+                for p in in_bounds:
+                    bx.append(p[0])
+                    by.append(p[1])
+                    bz.append(sample_elev(p[0], p[1], offset=1.8))
+                bx.append(None)
+                by.append(None)
+                bz.append(None)
+        if bx:
+            fig.add_trace(go.Scatter3d(
+                x=bx, y=by, z=bz,
+                mode="lines",
+                line=dict(color="#38BDF8", width=3.2, dash="dash"),
+                name="District Boundaries (Golaghat / Nagaon / Biswanath)",
+                hoverinfo="text",
+                hovertext="<b>District Boundary Line</b><br>Golaghat &bull; Nagaon &bull; Biswanath Border"
+            ))
+
+    # 4. Simulated Translucent Floodwater Surface
+    if show_floodwater and np.any(w_mask):
+        z_water = np.where(w_mask, z_terrain + 1.2, np.nan)
+        fig.add_trace(go.Surface(
+            x=lons,
+            y=lats,
+            z=z_water,
+            colorscale=[[0.0, "#06B6D4"], [0.5, "#0284C7"], [1.0, "#38BDF8"]],
+            showscale=False,
+            opacity=0.86,
+            name=f"Simulated Floodwater ({stage['name']})",
+            hoverinfo="text",
+            hovertext="<b>Simulated Flood Inundation Surface</b><br>Terrain-Guided Water Depth (~1.2m depth)"
+        ))
+
+    # 5. ⚡ Advancing Flood Front Layer (Newly Inundated Cells at Current Stage)
+    if show_floodwater and np.any(newly_mask):
+        front_lats = lat_grid[newly_mask].flatten()
+        front_lons = lon_grid[newly_mask].flatten()
+        front_elev = elev[newly_mask].flatten()
+        front_zs = (front_elev * vertical_exaggeration) + 1.8
+        fig.add_trace(go.Scatter3d(
+            x=front_lons,
+            y=front_lats,
+            z=front_zs,
+            mode="markers",
+            marker=dict(
+                color="#00F0FF",
+                size=6.0,
+                symbol="circle",
+                line=dict(color="#FFFFFF", width=1.5)
+            ),
+            name="⚡ Advancing Flood Front (Newly Flooded)",
+            hoverinfo="text",
+            hovertext=[
+                f"<b>⚡ ADVANCING FLOOD FRONT</b><br>Newly Inundated at Stage {curr_idx}<br>Coords: {float(front_lats[i]):.3f}°N, {float(front_lons[i]):.3f}°E<br>Elevation: {float(front_elev[i]):.1f} m"
+                for i in range(len(front_lats))
+            ]
+        ))
+
+    # 6. AI Model High-Risk Core Layer
+    if show_ai_footprint and spatial_preds is not None and "risk_grid" in spatial_preds:
+        hr_mask = np.asarray(spatial_preds["risk_grid"] >= 65.0, dtype=bool)
+        if np.any(hr_mask):
+            hr_lats = lat_grid[hr_mask].flatten()
+            hr_lons = lon_grid[hr_mask].flatten()
+            hr_zs = (elev[hr_mask].flatten() * vertical_exaggeration) + 0.7
+            hr_risks = spatial_preds["risk_grid"][hr_mask].flatten()
+            fig.add_trace(go.Scatter3d(
+                x=hr_lons,
+                y=hr_lats,
+                z=hr_zs,
+                mode="markers",
+                marker=dict(color="#EF4444", size=3.5, opacity=0.75, symbol="circle"),
+                name="AI High-Risk Hotspots (>= 65%)",
+                hoverinfo="text",
+                hovertext=[
+                    f"<b>AI Flood Probability: {float(hr_risks[i]):.1f}%</b><br>Coords: {float(hr_lats[i]):.3f}°N, {float(hr_lons[i]):.3f}°E"
+                    for i in range(len(hr_lats))
+                ]
+            ))
+
+    # 7. Observed DFO Event 4924 Ground Truth
+    if show_gt and spatial_preds is not None and "gt_grid" in spatial_preds:
+        gt_mask = np.asarray(spatial_preds["gt_grid"] == 1, dtype=bool)
+        if np.any(gt_mask):
+            gt_lats = lat_grid[gt_mask].flatten()
+            gt_lons = lon_grid[gt_mask].flatten()
+            gt_zs = (elev[gt_mask].flatten() * vertical_exaggeration) + 0.4
+            fig.add_trace(go.Scatter3d(
+                x=gt_lons,
+                y=gt_lats,
+                z=gt_zs,
+                mode="markers",
+                marker=dict(color="#10B981", size=3.0, opacity=0.55, symbol="cross"),
+                name="DFO Event 4924 Ground Truth",
+                hoverinfo="text",
+                hovertext="<b>Observed Historical Flood Extent</b><br>Global Flood Database / Sentinel SAR (DFO 4924)"
+            ))
+
+    # 8. Downhill Overland Gravity Flow Streamlines (-∇z)
+    if show_streamlines and "streamlines" in stage and stage["streamlines"]:
+        st_x, st_y, st_z = [], [], []
+        for sl in stage["streamlines"]:
+            for i in range(len(sl["lons"])):
+                st_x.append(sl["lons"][i])
+                st_y.append(sl["lats"][i])
+                st_z.append(sl["zs"][i] * vertical_exaggeration + 1.4)
+            st_x.append(None)
+            st_y.append(None)
+            st_z.append(None)
+        fig.add_trace(go.Scatter3d(
+            x=st_x, y=st_y, z=st_z,
+            mode="lines",
+            line=dict(color="#F59E0B", width=2.8),
+            name="Downhill Overland Flow Streamlines (-∇z)",
+            hoverinfo="text",
+            hovertext="<b>Steepest Descent Flow Path</b><br>Overland Drainage Trajectory toward River Channel"
+        ))
+
+    # 9. District Towns & Key Floodplain Landmarks
+    if show_landmarks:
+        landmarks = [
+            {"name": "Kaziranga Central Lowland", "lat": 26.60, "lon": 93.35, "desc": "Alluvial Lowland & National Park Core"},
+            {"name": "Bokakhat Town", "lat": 26.62, "lon": 93.59, "desc": "Golaghat Sub-Divisional HQ"},
+            {"name": "Kaliabor / Silghat", "lat": 26.58, "lon": 93.08, "desc": "Nagaon Riverbank Port"},
+            {"name": "Numaligarh Riverbank", "lat": 26.56, "lon": 93.61, "desc": "Dhansiri River Confluence"},
+            {"name": "Biswanath Ghat (North Bank)", "lat": 26.66, "lon": 93.18, "desc": "Historic Brahmaputra River Ghat"},
+            {"name": "Diffolu River Outfall", "lat": 26.64, "lon": 93.42, "desc": "Major Flood Drainage Confluence"}
+        ]
+        lm_x = [lm["lon"] for lm in landmarks]
+        lm_y = [lm["lat"] for lm in landmarks]
+        lm_z = [sample_elev(lm["lon"], lm["lat"], offset=3.5) for lm in landmarks]
+        lm_text = [lm["name"] for lm in landmarks]
+        fig.add_trace(go.Scatter3d(
+            x=lm_x, y=lm_y, z=lm_z,
+            mode="markers+text",
+            marker=dict(color="#F8FAFC", size=6, symbol="circle", line=dict(color="#0284C7", width=2)),
+            text=lm_text,
+            textposition="top center",
+            textfont=dict(color="#F8FAFC", size=10, family="Inter, sans-serif"),
+            name="District Towns & Landmarks",
+            hoverinfo="text",
+            hovertext=[f"<b>{lm['name']}</b><br>{lm['desc']}<br>Coords: {lm['lat']}°N, {lm['lon']}°E" for lm in landmarks]
+        ))
+
+    # 10. Selected Inspection Location Marker Pin
+    if selected_location:
+        sel_lat, sel_lon = float(selected_location[0]), float(selected_location[1])
+        fig.add_trace(go.Scatter3d(
+            x=[sel_lon],
+            y=[sel_lat],
+            z=[sample_elev(sel_lon, sel_lat, offset=4.5)],
+            mode="markers+text",
+            marker=dict(color="#EF4444", size=11, symbol="diamond", line=dict(color="#FFFFFF", width=2)),
+            text=[f"TARGET [{sel_lat:.3f}°N, {sel_lon:.3f}°E]"],
+            textposition="top center",
+            textfont=dict(color="#F8FAFC", size=11, family="Inter, sans-serif"),
+            name="Target Inspection Pin",
+            hoverinfo="text",
+            hovertext=f"<b>Selected Cell Location</b><br>Coords: {sel_lat:.3f}°N, {sel_lon:.3f}°E"
+        ))
+
+    # Camera Presets calibrated for the Golaghat & Nagaon District Study Area
+    camera_presets = {
+        "district": dict(eye=dict(x=0.0, y=-1.55, z=1.20), center=dict(x=0.0, y=0.0, z=-0.10)),
+        "basin": dict(eye=dict(x=0.20, y=-0.95, z=0.60), center=dict(x=0.05, y=0.05, z=-0.05)),
+        "hotspot": dict(eye=dict(x=0.10, y=-0.50, z=0.35), center=dict(x=0.08, y=0.08, z=0.0)),
+        "topdown": dict(eye=dict(x=0.0001, y=0.0001, z=2.25), center=dict(x=0.0, y=0.0, z=0.0), up=dict(x=0, y=1, z=0)),
+        "regional": dict(eye=dict(x=0.0, y=-2.60, z=2.10), center=dict(x=0.0, y=0.0, z=-0.20))
+    }
+
+    # Map legacy scale levels
+    level_alias_map = {
+        "assam": "district",
+        "regional": "regional",
+        "valley": "basin",
+        "sector": "district",
+        "cell": "hotspot",
+        "topdown": "topdown"
+    }
+    chosen_level = level_alias_map.get(scale_level, scale_level)
+    chosen_camera = camera_presets.get(chosen_level, camera_presets["district"])
+
+    fig.update_layout(
+        title=dict(
+            text=f"<b>GOLAGHAT & NAGAON DISTRICTS (KAZIRANGA CORRIDOR) &bull; 3D TERRAIN-GUIDED SIMULATION &bull; {stage.get('name', '').upper()} ({stage.get('tag', '')})</b>",
+            font=dict(color="#F8FAFC", size=13, family="Inter, sans-serif")
+        ),
+        scene=dict(
+            xaxis=dict(title="Longitude (°E)", backgroundcolor="#0B111E", gridcolor="#1E293B", showbackground=True, color="#94A3B8"),
+            yaxis=dict(title="Latitude (°N)", backgroundcolor="#0B111E", gridcolor="#1E293B", showbackground=True, color="#94A3B8"),
+            zaxis=dict(title="Elevation (m)", backgroundcolor="#0B111E", gridcolor="#1E293B", showbackground=True, color="#94A3B8"),
+            camera=chosen_camera,
+            aspectratio=dict(x=1.65, y=1.20, z=0.35)
+        ),
+        template="plotly_dark",
+        paper_bgcolor="#0F172A",
+        margin=dict(l=10, r=10, t=40, b=20),
+        height=720,
+        legend=dict(
+            x=0.01,
+            y=0.98,
+            bgcolor="rgba(15, 23, 42, 0.88)",
+            bordercolor="#334155",
+            borderwidth=1,
+            font=dict(color="#E2E8F0", size=10, family="Inter, sans-serif")
+        )
+    )
+
+    return fig
+
 def build_assam_3d_simulation_map(
     topo_assam: dict,
     sim_data: dict,
@@ -256,6 +699,25 @@ def build_assam_3d_simulation_map(
     vertical_exaggeration: float = 0.85,
     **kwargs
 ) -> go.Figure:
+    if topo_assam.get("elevation", np.array([])).shape == (50, 75):
+        return build_district_3d_simulation_map(
+            topo=topo_assam,
+            sim_data=sim_data,
+            active_stage_idx=active_stage_idx,
+            spatial_preds=sp_local,
+            scale_level=scale_level,
+            show_terrain=show_terrain,
+            show_boundaries=show_boundaries,
+            show_ai_footprint=show_ai_footprint,
+            show_river=show_river,
+            show_floodwater=show_floodwater,
+            show_streamlines=show_streamlines,
+            show_gt=show_gt,
+            show_landmarks=show_landmarks,
+            selected_location=selected_location,
+            vertical_exaggeration=2.2 if vertical_exaggeration < 1.0 else vertical_exaggeration,
+            **kwargs
+        )
     """
     Renders the Google Earth-style 3D interactive flood simulation map covering the ENTIRE State of Assam.
     Features:

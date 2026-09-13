@@ -20,6 +20,8 @@ from src.model import FloodRiskModel
 from src.prediction import generate_spatial_prediction
 from src.visualization import (
     generate_assam_topography,
+    compute_district_flood_simulation,
+    build_district_3d_simulation_map,
     compute_assam_flood_simulation,
     build_assam_3d_simulation_map,
     compute_downhill_flow_paths,
@@ -53,14 +55,37 @@ def test_all_features():
     print(f"    [PASS] District boundary rings loaded: {len(topo_assam['district_rings'])}")
     print(f"    [PASS] River network polylines loaded: {len(topo_assam['river_lines'])}")
 
-    # 3. 5-Stage Flood Simulation
+    # 3. 5-Stage Flood Simulation (Statewide & District-Scale)
     print("\n[3] Testing 5-stage flood propagation simulation...")
     sim_data = compute_assam_flood_simulation(topo_assam, sp_local=sp_local, rainfall_7d=342.8)
     assert len(sim_data["stages"]) == 5, "Expected exactly 5 stages"
     for i, s in enumerate(sim_data["stages"]):
-        print(f"    Stage {i+1} ({s['tag']}): {s['name']} | Water cells: {s['flooded_cells']} ({s['flooded_area_km2']:.1f} km^2) | Streamlines: {len(s['streamlines'])}")
+        print(f"    Statewide Stage {i+1} ({s['tag']}): {s['name']} | Water cells: {s['flooded_cells']} ({s['flooded_area_km2']:.1f} km^2) | Streamlines: {len(s['streamlines'])}")
     assert sim_data["stages"][4]["flooded_cells"] > sim_data["stages"][0]["flooded_cells"], "Water extent did not expand"
-    print("    [PASS] 5 simulation stages computed with progressive inundation")
+    print("    [PASS] Statewide 5 simulation stages computed with progressive inundation")
+
+    print("\n[3b] Testing District-Scale (Golaghat & Nagaon) 5-stage flood simulation with Advancing Front...")
+    topo_local = generate_base_topography(config.STUDY_AREA["grid_rows"], config.STUDY_AREA["grid_cols"])
+    dist_sim = compute_district_flood_simulation(topo_local, spatial_preds=sp_local, rainfall_7d=342.8)
+    assert len(dist_sim["stages"]) == 5, "Expected exactly 5 district stages"
+    for i, s in enumerate(dist_sim["stages"]):
+        print(f"    District Stage {i} ({s['tag']}): {s['name']} | Flooded: {s['flooded_cells']} cells ({s['flooded_area_km2']:.1f} km²) | New Front: +{s['newly_flooded_cells']} cells")
+    assert dist_sim["stages"][4]["flooded_cells"] > dist_sim["stages"][0]["flooded_cells"], "District water extent did not expand"
+    assert dist_sim["stages"][1]["newly_flooded_cells"] > 0, "Stage 1 advancing front must have newly flooded cells"
+    print("    [PASS] District simulation computed with active advancing flood front (+newly inundated cells)")
+
+    print("\n[3c] Testing District 3D Map construction with advancing front and presets...")
+    dist_fig = build_district_3d_simulation_map(
+        topo=topo_local,
+        sim_data=dist_sim,
+        active_stage_idx=3,
+        spatial_preds=sp_local,
+        scale_level="district",
+        show_floodwater=True,
+        show_boundaries=True
+    )
+    assert len(dist_fig.data) >= 8, f"Expected >= 8 traces, got {len(dist_fig.data)}"
+    print(f"    [PASS] District 3D Map rendered with {len(dist_fig.data)} visual traces")
 
     # 4. Map Scale Presets & Camera Views
     print("\n[4] Testing Google Earth-style camera scale presets...")
