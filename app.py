@@ -1109,12 +1109,11 @@ else:
 st.markdown("</div>", unsafe_allow_html=True)
 
 # --- 5. STRUCTURED ANALYTICAL TABS ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "📈 Risk Progression Timeline",
     "🎯 Historical Event Validation",
     "🔬 Model Explainability & Drivers",
-    "🛰️ Methodology & Data Pipeline",
-    "📋 Hackathon Pitch Deck (8 Slides)"
+    "🛰️ Methodology & Data Pipeline"
 ])
 
 # TAB 1: RISK TIMELINE
@@ -1249,57 +1248,6 @@ with tab4:
         3. <b>Micro-Topography:</b> Village culverts, road bridges, and localized levees below 500m are not explicitly resolved in the 500m spatial grid.
     </div>
     """, unsafe_allow_html=True)
-
-# TAB 5: HACKATHON PITCH DECK
-with tab5:
-    st.markdown("##### **Executive Hackathon Presentation Deck (8 Slides)**")
-    st.markdown("""
-    ---
-    ### 🎯 **Slide 1: Problem Statement**
-    - **The Crisis**: The Brahmaputra floodplain in Assam suffers devastating annual monsoonal flooding affecting over 5 million people, 85%+ of Kaziranga National Park, and vast agricultural livelihoods.
-    - **The Gap**: Traditional river gauge monitoring provides point-source warnings without spatial inundation risk mapping; hydrodynamic 2D models are too computationally slow for rapid decision support.
-
-    ---
-    ### 💡 **Slide 2: Our Solution — FloodSense AI**
-    - A rapid spatial machine learning pipeline combining **public Earth Observation archives** (Sentinel-2, CHIRPS, SRTM DEM, JRC Water).
-    - Produces a **continuous 0–100 spatial risk surface** with 24–72 hour early warning lead times before catastrophic peak inundation.
-
-    ---
-    ### 🛰️ **Slide 3: Multi-Sensor Data Fusion**
-    - **Sentinel-2 Harmonized**: Multi-spectral bands (B3, B4, B8, B11, B12) & spectral water indices (NDWI, MNDWI).
-    - **CHIRPS Daily**: Multi-window precipitation accumulation (1d, 3d, 7d, 14d) capturing soil saturation.
-    - **SRTM DEM**: High-precision elevation and topographic slope.
-    - **JRC Global Surface Water**: Isolates permanent river channels from novel inundation.
-
-    ---
-    ### ⚙️ **Slide 4: Machine Learning Architecture & Zero Leakage**
-    - **Models**: Balanced Random Forest Classifier and Comparative XGBoost.
-    - **Temporal Integrity**: Zero future information leakage. Predictions at time $T$ utilize solely prior antecedent information ($T-14$, $T-7$, $T-3$, $T-2$).
-    - **Spatial Integrity**: Evaluated on an unseen geographic sector (Area B holdout).
-    - **Output**: Calibrated probability $P(\\text{Flood})$ converted to intuitive 4-tier alert system (NORMAL, WATCH, WARNING, HIGH RISK).
-
-    ---
-    ### 📊 **Slide 5: Historical Validation on July 2020 Catastrophic Flood**
-    - **Benchmark Event**: July 14, 2020 peak inundation in Kaziranga-Golaghat corridor.
-    - **Proven Escalation**: Mean predicted risk climbs systematically from **0.2%** at $T-7$, to **6.6%** at $T-3$, **27.2%** at $T-2$, **51.9%** at $T-1$, reaching **66.6%** at peak $T$.
-    - **Quantitative Performance**: Achieved **F1-Score 0.91** and **IoU 0.83** against verified Global Flood Database ground truth on unseen geographic holdout sector with zero temporal or spatial leakage.
-
-    ---
-    ### 💻 **Slide 6: Live Product Demonstration**
-    - Modern geospatial intelligence dashboard with interactive Folium map.
-    - Instantaneous risk map generation, KPI metrics (area inundated, rainfall triggers), and dynamic alert tiers.
-
-    ---
-    ### ⚠️ **Slide 7: Honest Scientific Limitations**
-    - Coarse 5.5 km rainfall resolution downscaling.
-    - Cloud deck occlusion during heavy monsoon rainfall requires pre-event baseline synthesis.
-    - Prototype status: Historical predictive experiment, not a certified emergency broadcasting system.
-
-    ---
-    ### 🚀 **Slide 8: Roadmap & Future Scalability**
-    - Fusion with **Sentinel-1 SAR** (VV/VH dual-pol) for cloud-penetrating radar observation.
-    - Deployment across all 34 flood-prone districts of Assam with automated ASDMA API webhooks.
-    """)
 
 # --- 6. CLEAN COMMAND FOOTER ---
 st.markdown("""
